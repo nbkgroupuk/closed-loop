@@ -1,0 +1,13 @@
+{
+  "mti": "0100",
+  "fields": {
+    "2": "TEST_PAN_REDACTED",
+    "3": "000000",
+    "4": "000000010000",
+    "11": "123456",
+    "41": "TERMID01",
+    "42": "MERCHID000001",
+    "protocol": "POS Terminal -101.1",
+    "authCode": "1234"
+  }
+}

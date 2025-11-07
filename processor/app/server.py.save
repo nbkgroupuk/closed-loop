@@ -1,0 +1,118 @@
+import os, json, socketserver, threading, logging
+from datetime import datetime
+from fastapi import FastAPI, Request, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+
+# --------------------------------------------------------------------
+# Logging setup
+# --------------------------------------------------------------------
+log = logging.getLogger("processor")
+logging.basicConfig(level=logging.INFO)
+
+# --------------------------------------------------------------------
+# FastAPI setup
+# --------------------------------------------------------------------
+app = FastAPI(title="Processor Service")
+
+ALLOWED_ORIGINS = os.environ.get("ALLOWED_ORIGINS", "*").split(",")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[o.strip() for o in ALLOWED_ORIGINS if o.strip()],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# --------------------------------------------------------------------
+# Health endpoint for Docker
+# --------------------------------------------------------------------
+@app.get("/healthz")
+async def healthz():
+    return {"status": "ok", "service": "processor", "iso_port": 9000}
+
+# --------------------------------------------------------------------
+# Payout handler (placeholder – to be integrated with payment engine)
+# --------------------------------------------------------------------
+@app.post("/payout")
+async def payout(payload: Request):
+    data = await payload.json()
+    required = ["merchant_id", "cardNumber", "expiry", "cvc", "amount", "currency"]
+    miss = [k for k in required if k not in data]
+    if miss:
+        raise HTTPException(status_code=400, detail={"missing": miss})
+    resp = {
+        "DE39": "00",
+        "status": "approved",
+        "auth_code": data.get("authCode") or __import__("secrets").token_hex(3),
+        "job_id": data.get("job_id"),
+    }
+    return resp
+
+# --------------------------------------------------------------------
+# ISO8583-like TCP handler
+# --------------------------------------------------------------------
+class ISOHandler(socketserver.StreamRequestHandler):
+    def handle(self):
+        data = self.rfile.readline().strip()
+        if not data:
+            return
+        try:
+            text = data.decode()
+            log.info("Received raw ISO msg: %s", text)
+            j = json.loads(text)
+            response = json.dumps({
+                "mti": "0210",
+                "fields": {"39": "00", "desc": "APPROVED"},
+                "echo": j
+            }) + "\n"
+            self.wfile.write(response.encode())
+
+            # Log transaction record
+            os.makedirs("/var/log", exist_ok=True)
+            with open("/var/log/iso_transactions.jsonl", "a") as f:
+                f.write(json.dumps({
+                    "timestamp": datetime.utcnow().isoformat(),
+                    "mti": "0200",
+                    "status": "approved",
+                    "length": len(data)
+                }) + "\n")
+
+        except Exception as e:
+            log.exception("Error processing tcp msg: %s", e)
+            self.wfile.write(b'{"error":"bad"}\n')
+
+# --------------------------------------------------------------------
+# Start ISO8583 TCP server (runs in background thread)
+# --------------------------------------------------------------------
+
+@app.on_event("startup")
+def on_startup():
+    try:
+        log.info("[init] ISO8583 TCP started via FastAPI startup event")
+    except Exception as e:
+        log.exception(f"Failed to start ISO server: {e}")
+
+# --- FastAPI startup integration for ISO TCP listener ---
+from fastapi import FastAPI
+import threading
+
+app = FastAPI()
+
+def _start_iso_server_safe():
+    try:
+        # import locally so module-level imports don't run the server
+        from .iso_listener import start_iso_server   # adapt if function name differs
+        start_iso_server(host="0.0.0.0", port=int(os.environ.get("ISO_PORT", "9000")))
+    except Exception:
+        import traceback
+        log.exception("Failed to start ISO server in startup event")
+        traceback.print_exc()
+
+@app.on_event("startup")
+def startup_event():
+    threading.Thread(target=_start_iso_server_safe, daemon=True).start()
+
+@app.get("/healthz")
+async def healthz():
+    return {"status":"ok","service":"processor","iso_port":int(os.environ.get("ISO_PORT", "9000"))}
+

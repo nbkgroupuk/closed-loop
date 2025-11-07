@@ -1,0 +1,104 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "Processor API (compact)",
+    "version": "1.0.0"
+  },
+  "paths": {
+    "/payout": {
+      "post": {
+        "summary": "Submit a payout (ISO20022 JSON payload)",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "type": {"type": "string", "example": "iso20022"},
+                  "merchant_id": {"type": "string"},
+                  "terminal_id": {"type": "string"},
+                  "txn_id": {"type": "string"},
+                  "amount": {"type": "string", "example": "10.00"},
+                  "currency": {"type": "string", "example": "EUR"},
+                  "protocol": {"type": "string", "example": "101.1"},
+                  "auth_code": {"type": "string", "example": "1234"},
+                  "payoutDetails": {"type": "object"}
+                },
+                "required": ["type","amount","currency"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Request accepted and processed",
+            "content": {
+              "application/json": {
+                "schema": {"$ref": "#/components/schemas/ProcessorResponse"}
+              }
+            }
+          },
+          "502": {"description": "Gateway/processor error"}
+        }
+      }
+    },
+    "/payout/status/{txn_id}": {
+      "get": {
+        "summary": "Get payout status by txn_id",
+        "parameters": [{
+          "name": "txn_id",
+          "in": "path",
+          "required": true,
+          "schema": { "type": "string" }
+        }],
+        "responses": {
+          "200": {
+            "description": "Payout found",
+            "content": {
+              "application/json": {
+                "schema": {"$ref": "#/components/schemas/PayoutStatus"}
+              }
+            }
+          },
+          "404": {"description": "Not Found"}
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "ProcessorResponse": {
+        "type": "object",
+        "properties": {
+          "status": {"type": "string", "example": "approved"},
+          "code": {"type": "string", "example": "00"},
+          "error": {"type": ["string","null"], "example": null},
+          "response": {
+            "type": "object",
+            "properties": {
+              "fields": {"type": "object", "additionalProperties": true},
+              "txn_id": {"type": "string"},
+              "payout_event_id": {"type": ["string","null"]},
+              "message": {"type": ["string","null"]}
+            }
+          }
+        }
+      },
+      "PayoutStatus": {
+        "type": "object",
+        "properties": {
+          "txn_id": {"type": "string"},
+          "reference": {"type": "string"},
+          "merchant_id": {"type": "string"},
+          "method": {"type": "string"},
+          "amount": {"type": "number"},
+          "currency": {"type": "string"},
+          "status": {"type": "string", "example": "pending"},
+          "created_ts": {"type": "string", "format": "date-time"}
+        },
+        "required": ["txn_id","status"]
+      }
+    }
+  }
+}

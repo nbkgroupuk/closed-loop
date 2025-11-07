@@ -1,0 +1,13 @@
+# placeholder requirements
+fastapi
+uvicorn[standard]
+SQLAlchemy>=1.4
+asyncpg
+pydantic<2
+aiosqlite
+httpx
+requests
+PyJWT
+
+passlib
+pyotp

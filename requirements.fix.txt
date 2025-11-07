@@ -1,0 +1,7 @@
+fastapi==0.95.2
+uvicorn[standard]==0.22.0
+pydantic==1.8.1
+sqlalchemy==2.0.43
+psycopg2-binary==2.9.10
+web3==6.0.0
+xmlschema==3.4.2

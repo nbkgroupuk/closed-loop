@@ -1,0 +1,57 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: project-processor
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: project-processor
+  template:
+    metadata:
+      labels: { app: project-processor }
+    spec:
+      containers:
+      - name: processor
+        image: your-registry/project-processor:latest
+        ports:
+        - containerPort: 9000
+        - containerPort: 8000 # http health
+        env:
+        - name: ENV
+          value: production
+        # replace with secrets/ConfigMap mounts for db creds
+        readinessProbe:
+          httpGet:
+            path: /readyz
+            port: 8000
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: 8000
+          initialDelaySeconds: 10
+          periodSeconds: 20
+        resources:
+          requests:
+            cpu: "200m"
+            memory: "256Mi"
+          limits:
+            cpu: "1"
+            memory: "1Gi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: project-processor
+spec:
+  selector:
+    app: project-processor
+  ports:
+  - name: tcp-iso
+    port: 9000
+    targetPort: 9000
+  - name: http
+    port: 8000
+    targetPort: 8000

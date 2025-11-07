@@ -1,0 +1,9 @@
+fastapi==0.95.2
+uvicorn[standard]==0.22.0
+httpx==0.24.1
+python-json-logger==2.0.4
+lxml==4.9.3
+xmlschema==3.4.2
+Dockerfile
+pydantic>=2.4
+prometheus-client==0.17.0

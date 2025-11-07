@@ -1,0 +1,166 @@
+
+#!/usr/bin/env python3
+"""
+project/test_tcp.py - framed JSON test client for your Processor
+
+Usage:
+  python test_tcp.py HOST PORT [payload.json]
+
+Sends: 4-byte BE length prefix + JSON payload (no MTI ASCII prefix).
+The JSON payload format is: {"mti":"0100","fields":{ ... }}
+
+It prints the bytes it will send (hex) so you can inspect them.
+"""
+
+import socket
+import struct
+import json
+import sys
+from pathlib import Path
+
+HOST = sys.argv[1] if len(sys.argv) > 1 else "127.0.0.1"
+PORT = int(sys.argv[2]) if len(sys.argv) > 2 else 15000
+PAYLOAD_FILE = sys.argv[3] if len(sys.argv) > 3 else None
+
+def build_default_payload(case="101.1"):
+    if case.startswith("101."):
+        auth = "1234"
+        protocol = f"POS Terminal -{case}"
+    else:
+        auth = "123456"
+        protocol = f"POS Terminal -{case}"
+
+    payload = {
+        "mti": "0100",
+        "fields": {
+            "2": "TEST_PAN_REDACTED",
+            "3": "000000",
+            "4": "000000010000",
+            "11": "123456",
+            "41": "TERMID01",
+            "42": "MERCHANT_ID_PLACEHOLDER",
+            "protocol": protocol,
+            "authCode": auth,
+            "correlation_id": "corr-1",
+            "txn_id": "550e8400-e29b-41d4-a716-446655440000"
+        }
+    }
+    return payload
+
+def load_payload_from_file(path: str):
+    p = Path(path)
+    if not p.exists():
+        raise FileNotFoundError(f"{path} not found")
+    with p.open("r", encoding="utf-8") as fh:
+        data = json.load(fh)
+    if not isinstance(data, dict):
+        raise ValueError("payload JSON must be an object")
+    if "fields" not in data:
+        raise ValueError("payload JSON must contain top-level 'fields' object")
+    if "mti" not in data:
+        data["mti"] = "0100"
+    return data
+
+def frame_payload_json_only(payload_obj: dict) -> bytes:
+    """
+    Frame the JSON-only payload:
+      frame = 4-byte BE length prefix + JSON bytes
+    The processor expects the JSON body to include {"mti": "...", "fields": {...}}
+    """
+    body_bytes = json.dumps(payload_obj, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+    frame = struct.pack(">I", len(body_bytes)) + body_bytes
+    return frame
+
+def recv_exact(sock: socket.socket, n: int, timeout=5):
+    sock.settimeout(timeout)
+    data = b""
+    while len(data) < n:
+        chunk = sock.recv(n - len(data))
+        if not chunk:
+            break
+        data += chunk
+    return data
+
+def main():
+    # Prepare payload object
+    if PAYLOAD_FILE:
+        try:
+            data = load_payload_from_file(PAYLOAD_FILE)
+        except Exception as e:
+            print("Failed to load payload file:", e)
+            sys.exit(2)
+    else:
+        data = build_default_payload("101.1")
+
+    # Ensure top-level object with mti+fields
+    payload_obj = {
+        "mti": data.get("mti", "0100"),
+        "fields": data.get("fields", {})
+    }
+
+    frame = frame_payload_json_only(payload_obj)
+
+    # Print diagnostics (hex + ascii preview)
+    print("=== OUTBOUND FRAME ===")
+    print("Total frame length (bytes):", len(frame))
+    print("Length prefix (hex):", frame[:4].hex())
+    print("First 128 bytes (hex):", frame[:128].hex())
+    try:
+        preview = frame[4:200].decode("utf-8", errors="replace")
+    except Exception:
+        preview = "<unprintable>"
+    print("JSON preview (first 200 chars):", preview)
+    print("=======================")
+
+    # Connect and send
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    s.settimeout(8)
+    try:
+        print(f"Connecting to {HOST}:{PORT} ...")
+        s.connect((HOST, PORT))
+        print("Connected — sending framed payload...")
+        s.sendall(frame)
+
+        # receive 4-byte big-endian length prefix for response
+        hdr = recv_exact(s, 4, timeout=8)
+        if len(hdr) < 4:
+            print("No response received (socket closed or no reply).")
+            return
+
+        total = struct.unpack(">I", hdr)[0]
+        print("Expecting", total, "bytes of payload in response")
+
+        data = recv_exact(s, total, timeout=8)
+        if not data:
+            print("No payload received.")
+            return
+
+        # Response handling: server may send JSON-only or MTI+JSON
+        if data.startswith(b'{') or data.startswith(b'['):
+            resp_mti = None
+            resp_body = data.decode("utf-8", errors="strict")
+        else:
+            # try MTI-prefixed fallback
+            try:
+                resp_mti = data[:4].decode("ascii", errors="ignore")
+                resp_body = data[4:].decode("utf-8", errors="strict")
+            except Exception:
+                resp_mti = None
+                resp_body = data.decode("utf-8", errors="ignore")
+
+        print("Response MTI:", resp_mti or "(none)")
+        print("Response JSON text:", resp_body)
+        try:
+            resp = json.loads(resp_body)
+            print("Parsed response:", json.dumps(resp, indent=2))
+        except Exception as e:
+            print("Failed to parse JSON response:", e)
+            print("Raw body repr:", repr(resp_body))
+
+    except Exception as exc:
+        print("Socket error:", exc)
+    finally:
+        s.close()
+
+if __name__ == "__main__":
+    main()

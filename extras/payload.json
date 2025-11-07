@@ -1,0 +1,12 @@
+{
+  "merchant_id": "test_merchant_1",
+  "method": "crypto",
+  "amount": 0.01,
+  "currency": "BTC",
+  "protocol": "201.1",
+  "auth_code": "5678",
+  "crypto_wallet": {
+    "address": "tb1qtestdestinationaddress0000000000000000000"
+  },
+  "reference": "idempotency-test-001"
+}

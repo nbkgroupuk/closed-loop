@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Document xmlns="urn:iso:std:iso:20022:tech:xsd:pain.001.001.03">
+  <CstmrCdtTrfInitn>
+    <GrpHdr>
+      <MsgId>MSG-TEST-0001</MsgId>
+      <CreDtTm>2025-10-09T12:00:00Z</CreDtTm>
+      <NbOfTxs>1</NbOfTxs>
+      <CtrlSum>10.00</CtrlSum>
+      <InitgPty><Nm>Your Company Ltd</Nm></InitgPty>
+    </GrpHdr>
+    <PmtInf>
+      <PmtInfId>PAYINF-0001</PmtInfId>
+      <PmtMtd>TRF</PmtMtd>
+      <BtchBookg>false</BtchBookg>
+      <NbOfTxs>1</NbOfTxs>
+      <CtrlSum>10.00</CtrlSum>
+      <ReqdExctnDt>2025-10-10</ReqdExctnDt>
+
+      <!-- Debtor (payer) -->
+      <Dbtr><Nm>Your Company Ltd</Nm></Dbtr>
+      <DbtrAcct><Id><IBAN>DE89370400440532013000</IBAN></Id></DbtrAcct>
+      <DbtrAgt><FinInstnId><BIC>DEUTDEFFXXX</BIC></FinInstnId></DbtrAgt>
+
+      <!-- Single credit transfer -->
+      <CdtTrfTxInf>
+        <PmtId>
+          <InstrId>INSTR-0001</InstrId>
+          <EndToEndId>E2E-0001</EndToEndId>
+        </PmtId>
+        <Amt>
+          <InstdAmt Ccy="USD">10.00</InstdAmt>
+        </Amt>
+
+        <!-- Creditor (beneficiary / merchant receiving credentials) -->
+        <CdtrAgt><FinInstnId><BIC>BENEBANKBIC</BIC></FinInstnId></CdtrAgt>
+        <Cdtr><Nm>Beneficiary Name</Nm></Cdtr>
+        <CdtrAcct><Id><IBAN>GB33BUKB20201555555555</IBAN></Id></CdtrAcct>
+
+        <RmtInf><Ustrd>Payout invoice 12345</Ustrd></RmtInf>
+      </CdtTrfTxInf>
+    </PmtInf>
+  </CstmrCdtTrfInitn>
+</Document>

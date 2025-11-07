@@ -1,0 +1,391 @@
+# --- start of patched routes.py ---
+from fastapi import APIRouter, Depends, HTTPException, Header, Request
+from pydantic import BaseModel, Field, validator
+from typing import Optional, Any
+from app.idempotency import canonical_request_hash
+from app.storage.db import AsyncSessionLocal
+from app.storage.models import Transaction, TxStatus, Outbox, Payout, PayoutType, PayoutStatus, EventLog
+from app.gateway_client import gateway_client, forward_to_gateway
+from app.ws import ConnectionManager
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
+import uuid, datetime, logging, os, json, re
+
+logger = logging.getLogger(__name__)
+router = APIRouter()
+ws_manager = ConnectionManager()
+
+# Protocol auth mapping copied from frontend index.html (kept for reference if needed).
+PROTOCOL_AUTH_LENGTH = {
+  "POS Terminal -101.1 (4-digit approval)": 4,
+  "POS Terminal -101.4 (6-digit approval)": 6,
+  "POS Terminal -101.6 (Pre-authorization)": 6,
+  "POS Terminal -101.7 (4-digit approval)": 4,
+  "POS Terminal -101.8 (PIN-LESS transaction)": 4,
+  "POS Terminal -201.1 (6-digit approval)": 6,
+  "POS Terminal -201.3 (6-digit approval)": 6,
+  "POS Terminal -201.5 (6-digit approval)": 6
+}
+
+# Canonical short-code -> auth length mapping (used internally)
+SHORT_PROTOCOL_LEN = {
+  "101.1": 4,
+  "101.4": 6,
+  "101.6": 6,
+  "101.7": 4,
+  "101.8": 4,
+  "201.1": 6,
+  "201.3": 6,
+  "201.5": 6
+}
+
+# ---------- Payload models ----------
+class TransactionIn(BaseModel):
+    merchant_id: str = Field(..., description="Merchant identifier")
+    cardNumber: str
+    expiry: str
+    cvc: str
+    amount: float
+    currency: str
+    protocol: str
+    authCode: str
+    payoutMethod: Optional[str] = None
+    payoutDetails: Optional[dict] = None
+
+    @validator("cardNumber")
+    def card_valid(cls, v):
+        v2 = "".join([c for c in v if c.isdigit()])
+        if len(v2) != 16:
+            raise ValueError("cardNumber must be 16 digits")
+        return v2
+
+    @validator("expiry")
+    def expiry_valid(cls, v):
+        import re, datetime
+        if not re.match(r"^(0[1-9]|1[0-2])\/\d{2}$", v):
+            raise ValueError("expiry must be MM/YY")
+        mm, yy = v.split("/")
+        exp = datetime.datetime(2000+int(yy), int(mm), 1)
+        now = datetime.datetime.utcnow(); now = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        if exp < now:
+            raise ValueError("card expiry in past")
+        return v
+
+    @validator("cvc")
+    def cvc_valid(cls, v):
+        if not v.isdigit() or len(v) not in (3,4):
+            raise ValueError("cvc invalid")
+        return v
+
+    @validator("protocol")
+    def protocol_allowed(cls, v):
+        """
+        Accept either:
+          - short form like "101.1" (recommended/universal), OR
+          - frontend full label like "POS Terminal -101.1 (4-digit approval)"
+        Normalize and return the short form (e.g. "101.1") so downstream logic uses a canonical key.
+        """
+        if not v or not isinstance(v, str):
+            raise ValueError("protocol not allowed")
+        s = v.strip()
+
+        # 1) If input already short numeric code like 101.1
+        if re.match(r'^\d{3}\.\d$', s):
+            if s in SHORT_PROTOCOL_LEN:
+                return s
+            raise ValueError("protocol not allowed")
+
+        # 2) Try to extract numeric code from full label (e.g. "POS Terminal -101.1 (4-digit approval)")
+        m = re.search(r'(\d{3}\.\d)', s)
+        if m:
+            code = m.group(1)
+            if code in SHORT_PROTOCOL_LEN:
+                return code
+
+        # 3) Fallback: also accept the exact original full keys (backwards compatibility)
+        if s in PROTOCOL_AUTH_LENGTH:
+            # find numeric code in that label
+            m2 = re.search(r'(\d{3}\.\d)', s)
+            if m2 and m2.group(1) in SHORT_PROTOCOL_LEN:
+                return m2.group(1)
+            # if no numeric found, accept the label but attempt to map to numeric via PROTOCOL_AUTH_LENGTH
+            return s
+
+        raise ValueError("protocol not allowed")
+
+    @validator("authCode")
+    def auth_code_len(cls, v, values):
+        proto = values.get("protocol")
+        if proto:
+            # proto may be short-form like "101.1" (preferred)
+            required = None
+            if isinstance(proto, str) and proto in SHORT_PROTOCOL_LEN:
+                required = SHORT_PROTOCOL_LEN.get(proto)
+            else:
+                # fallback: if proto is the full label, use PROTOCOL_AUTH_LENGTH
+                required = PROTOCOL_AUTH_LENGTH.get(proto)
+            if required and (not v.isdigit() or len(v) != required):
+                raise ValueError(f"authCode must be {required} digits for {proto}")
+        return v
+
+# ---------- Simple health ----------
+@router.get("/health")
+async def health():
+    return {"status":"ok", "service": os.environ.get("APP_NAME", "backend")}
+
+# ---------- Main transaction endpoint (async, DB-backed) ----------
+@router.post("/transactions")
+async def create_transaction(payload: TransactionIn, request: Request, idempotency_key: Optional[str] = Header(None)):
+    correlation_id = str(uuid.uuid4())
+    # idempotency handling
+    raw = payload.dict()
+    key = idempotency_key or canonical_request_hash(raw)
+    async with AsyncSessionLocal() as session:
+        # check existing idempotent
+        q = await session.execute(select(Transaction).where(Transaction.idempotency_key==key))
+        existing = q.scalars().first()
+        if existing:
+            return {"approved": existing.status == TxStatus.APPROVED, "de39": existing.de39, "de38": existing.de38, "txn_id": str(existing.id)}
+
+        # persist transaction PENDING
+        txn = Transaction(
+            merchant_id=payload.merchant_id,
+            amount=payload.amount,
+            currency=payload.currency,
+            pan_mask=f"****{payload.cardNumber[-4:]}",
+            expiry=payload.expiry,
+            protocol=payload.protocol,
+            correlation_id=correlation_id,
+            idempotency_key=key,
+            meta={"payoutMethod": payload.payoutMethod}
+        )
+        session.add(txn)
+        await session.commit()
+        await session.refresh(txn)
+
+        # Broadcast mti.outgoing
+        await ws_manager.broadcast(payload.merchant_id, "mti.outgoing", {"correlation_id": correlation_id, "txn_id": str(txn.id), "masked_pan": txn.pan_mask})
+
+        # send to Gateway for ISO8583 auth
+        gw_payload = {
+            "txn_id": str(txn.id),
+            "pan": payload.cardNumber,
+            "expiry": payload.expiry,
+            "cvc": payload.cvc,
+            "amount": str(payload.amount),
+            "currency": payload.currency,
+            "protocol": payload.protocol,
+            "authCode": payload.authCode,
+            "correlation_id": correlation_id
+        }
+        try:
+            gw_resp = await gateway_client.auth_transaction(gw_payload)
+        except Exception as e:
+            txn.status = TxStatus.FAILED
+            txn.de39 = "96"
+            session.add(txn); await session.commit()
+            await ws_manager.broadcast(payload.merchant_id, "mti.incoming", {"correlation_id": correlation_id, "de39":"96", "error": str(e)})
+            raise HTTPException(status_code=502, detail="Gateway error: " + str(e))
+
+        # update transaction based on gateway response
+        txn.gateway_txn_id = gw_resp.get("gateway_txn_id")
+        txn.de39 = gw_resp.get("de39")
+        txn.de38 = gw_resp.get("de38")
+        if gw_resp.get("approved"):
+            txn.status = TxStatus.APPROVED
+            # enqueue payout in outbox
+            payout = Payout(
+                transaction_id=txn.id,
+                merchant_id=txn.merchant_id,
+                type=PayoutType.BANK if (payload.payoutMethod or "").lower().startswith("bank") else PayoutType.CRYPTO,
+                status=PayoutStatus.PENDING,
+                payload={"auto": True, "requested_at": datetime.datetime.utcnow().isoformat()}
+            )
+            session.add(payout)
+            # outbox entry for payout worker (iso20022 or crypto)
+            target = "iso20022" if payout.type == PayoutType.BANK else "crypto_send"
+            out = Outbox(target=target, payload={"transaction_id": str(txn.id), "payout_id": None})
+            session.add(out)
+        else:
+            txn.status = TxStatus.REJECTED
+        session.add(txn)
+        # store event log
+        ev = EventLog(correlation_id=correlation_id, topic="mti.incoming", payload=gw_resp)
+        session.add(ev)
+        await session.commit()
+
+        # broadcast incoming MTI
+        await ws_manager.broadcast(payload.merchant_id, "mti.incoming", {"correlation_id": correlation_id, "txn_id": str(txn.id), "de39": txn.de39, "de38": txn.de38, "status": txn.status.value})
+        return {"approved": txn.status == TxStatus.APPROVED, "de39": txn.de39, "de38": txn.de38, "txn_id": str(txn.id)}
+
+# ---------- Lightweight local file-backed endpoints for dashboard/quick testing ----------
+DATA_DIR = os.environ.get("BACKEND_DATA_DIR", os.path.join(os.getcwd(), "data"))
+os.makedirs(DATA_DIR, exist_ok=True)
+TX_FILE = os.path.join(DATA_DIR, "transactions.json")
+PO_FILE = os.path.join(DATA_DIR, "payouts.json")
+
+def _read(path):
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            return json.load(fh)
+    except Exception:
+        return []
+
+def _write(path, arr):
+    with open(path, "w", encoding="utf-8") as fh:
+            json.dump(arr, fh, indent=2, default=str)
+
+def _append(path, record):
+    arr = _read(path)
+    arr.insert(0, record)
+    _write(path, arr)
+
+class TransactionReq(BaseModel):
+    merchant_id: Optional[str] = None
+    cardNumber: str
+    expiry: str
+    cvc: str
+    amount: float
+    currency: str = "USD"
+    protocol: Optional[str] = None
+    authCode: Optional[str] = None
+    txn_id: Optional[str] = None
+    correlation_id: Optional[str] = None
+
+@router.post("/transactions/local")
+def transactions_forward(payload: TransactionReq):
+    gw_payload = payload.dict()
+    gw_payload["txn_id"] = gw_payload.get("txn_id") or str(uuid.uuid4())
+    gw_payload["protocol"] = gw_payload.get("protocol") or "POS Terminal -101.1 (4-digit approval)"
+    gw_payload["authCode"] = gw_payload.get("authCode") or "1234"
+    gw_payload["merchant_id"] = gw_payload.get("merchant_id") or "M123"
+
+    # record pending
+    rec = {
+        "id": gw_payload["txn_id"],
+        "amount": gw_payload["amount"],
+        "currency": gw_payload["currency"],
+        "status": "pending",
+        "approved": False,
+        "de39": None,
+        "raw_request": gw_payload,
+        "raw_response": None,
+        "created_at": datetime.datetime.utcnow().isoformat()
+    }
+    _append(TX_FILE, rec)
+
+    # forward to gateway
+    try:
+        resp = forward_to_gateway("/transactions", gw_payload, timeout=15)
+    except Exception as e:
+        rec["status"] = "failed"
+        rec["raw_response"] = {"error": str(e)}
+        _append(TX_FILE, rec)
+        raise HTTPException(status_code=502, detail=f"Gateway comms failed: {e}")
+
+    # update record
+    rec["raw_response"] = resp
+    rec["de39"] = resp.get("de39")
+    rec["approved"] = bool(resp.get("approved"))
+    rec["status"] = "success" if rec["approved"] else "failed"
+    _append(TX_FILE, rec)
+    return resp
+
+class ISO20022Payout(BaseModel):
+    creditor_name: str
+    amount: float
+    currency: str = "USD"
+    pain_xml: str
+    correlation_id: Optional[str] = None
+
+@router.post("/payout/iso20022")
+def payout_iso20022(payload: ISO20022Payout):
+    data = payload.dict()
+    data["correlation_id"] = data.get("correlation_id") or str(uuid.uuid4())
+    rec = {
+        "id": str(uuid.uuid4()),
+        "type": "iso20022",
+        "amount": data["amount"],
+        "currency": data["currency"],
+        "status": "pending",
+        "raw_request": data,
+        "raw_response": None,
+        "created_at": datetime.datetime.utcnow().isoformat()
+    }
+    _append(PO_FILE, rec)
+    try:
+        resp = forward_to_gateway("/payout", data, timeout=20)
+    except Exception as e:
+        rec["status"] = "failed"
+        rec["raw_response"] = {"error": str(e)}
+        _append(PO_FILE, rec)
+        raise HTTPException(status_code=502, detail=f"Gateway comms failed: {e}")
+
+    rec["raw_response"] = resp
+    rec["status"] = "success" if resp.get("ok") or resp.get("approved") else "failed"
+    rec["reference"] = resp.get("gateway_txn_id") or resp.get("txn_id")
+    _append(PO_FILE, rec)
+    return resp
+
+class CryptoPayout(BaseModel):
+    to_address: str
+    amount: float
+    currency: str = "ETH"
+    correlation_id: Optional[str] = None
+
+@router.post("/payout/crypto")
+def payout_crypto(payload: CryptoPayout):
+    data = payload.dict()
+    data["correlation_id"] = data.get("correlation_id") or str(uuid.uuid4())
+    rec = {
+        "id": str(uuid.uuid4()),
+        "type": "crypto",
+        "amount": data["amount"],
+        "currency": data["currency"],
+        "status": "pending",
+        "raw_request": data,
+        "raw_response": None,
+        "created_at": datetime.datetime.utcnow().isoformat()
+    }
+    _append(PO_FILE, rec)
+    try:
+        resp = forward_to_gateway("/payout/crypto", data, timeout=20)
+    except Exception as e:
+        rec["status"] = "failed"
+        rec["raw_response"] = {"error": str(e)}
+        _append(PO_FILE, rec)
+        raise HTTPException(status_code=502, detail=f"Gateway comms failed: {e}")
+
+    rec["raw_response"] = resp
+    rec["status"] = "success" if resp.get("ok") or resp.get("approved") else "failed"
+    rec["tx_hash"] = resp.get("tx_hash")
+    _append(PO_FILE, rec)
+    return resp
+
+# ---------- Dashboard / Monitor render endpoints ----------
+# NOTE: these require jinja2 to be present in the image. If you don't want templates,
+# remove these endpoints or install jinja2 in the container.
+try:
+    from fastapi.templating import Jinja2Templates
+    from fastapi.responses import HTMLResponse
+    templates = Jinja2Templates(directory=os.path.join(os.getcwd(), "templates"))
+
+    @router.get("/dashboard", response_class=HTMLResponse)
+    def dashboard(request: Request):
+        txns = _read(TX_FILE)
+        payouts = _read(PO_FILE)
+        now = datetime.datetime.utcnow().isoformat()
+        return templates.TemplateResponse("dashboard.html", {"request": request, "txns": txns, "payouts": payouts, "now": now})
+
+    @router.get("/monitor", response_class=HTMLResponse)
+    def monitor(request: Request):
+        txns = _read(TX_FILE)
+        payouts = _read(PO_FILE)
+        now = datetime.datetime.utcnow().isoformat()
+        return templates.TemplateResponse("monitor.html", {"request": request, "transactions": txns, "payouts": payouts, "now": now})
+except Exception:
+    logger.info("jinja2/templates not available — dashboard endpoints disabled")
+
+# Router exported for app.include_router(...) in main.py
+__all__ = ["router", "ws_manager"]
+# --- end of patched routes.py ---

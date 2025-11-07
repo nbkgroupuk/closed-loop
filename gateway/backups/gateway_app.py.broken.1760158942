@@ -1,0 +1,71 @@
+# gateway_app.py
+from fastapi import FastAPI, Request, HTTPException
+import socket
+import json
+import os
+from fastapi.middleware.cors import CORSMiddleware
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # or ["http://localhost:3000"] if you want stricter
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+app = FastAPI(title="Gateway")
+
+
+# CORS — allow frontend to call gateway (added by repair script)
+from fastapi.middleware.cors import CORSMiddleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+# processor address inside docker network
+PROCESSOR_HOST = os.environ.get("PROCESSOR_HOST", "processor")
+PROCESSOR_PORT = int(os.environ.get("PROCESSOR_PORT", "5000"))
+TCP_TIMEOUT = 10
+
+@app.post("/payout")
+async def payout_handler(request: Request):
+    body = await request.json()
+    # basic validation
+    if body.get("type") != "iso20022":
+        raise HTTPException(status_code=400, detail="Only type=iso20022 supported in this route for now")
+
+    # Forward the entire JSON to the processor via framed TCP
+    payload_bytes = json.dumps(body, default=str).encode("utf-8")
+    length = len(payload_bytes)
+    framed = length.to_bytes(4, "big") + payload_bytes
+
+    try:
+        s = socket.create_connection((PROCESSOR_HOST, PROCESSOR_PORT), timeout=TCP_TIMEOUT)
+        s.sendall(framed)
+        # read 4-byte length
+        hdr = s.recv(4)
+        if not hdr or len(hdr) < 4:
+            raise RuntimeError("no response header from processor")
+        resp_len = int.from_bytes(hdr, "big")
+        resp_bytes = b""
+        toread = resp_len
+        while toread:
+            chunk = s.recv(toread)
+            if not chunk:
+                break
+            resp_bytes += chunk
+            toread -= len(chunk)
+        s.close()
+        resp_text = resp_bytes.decode("utf-8")
+        resp_json = json.loads(resp_text)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Processor comms failed: {e}")
+
+    return resp_json
+
+@app.get("/health")
+def health():
+    return {"status": "ok"}

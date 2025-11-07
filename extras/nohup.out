@@ -1,0 +1,4 @@
+2025/10/21 17:06:21 socat[41216] E bind(5, {AF=2 0.0.0.0:8080}, 16): Address already in use
+2025/10/21 17:06:49 socat[64399] E bind(5, {AF=2 0.0.0.0:8080}, 16): Address already in use
+2025/10/21 17:07:43 socat[8799] E bind(5, {AF=2 0.0.0.0:8080}, 16): Address already in use
+2025/10/21 17:20:16 socat[67944] E connect(5, AF=2 127.0.0.1:8080, 16): Connection refused

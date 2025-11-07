@@ -1,0 +1,11 @@
+{
+  "merchant_id": "M123",
+  "cardNumber": "TEST_PAN_REDACTED",
+  "expiry": "12/29",
+  "cvc": "123",
+  "amount": 100.00,
+  "currency": "USD",
+  "protocol": "POS Terminal -101.1 (4-digit approval)",
+  "authCode": "1234",
+  "txn_id": "test-123"
+}

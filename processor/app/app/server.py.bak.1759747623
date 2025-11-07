@@ -1,0 +1,93 @@
+# processor/app/app/server.py
+# Production-ready Processor service (FastAPI)
+#
+# - Exposes /health and /payouts/payout
+# - Requires X-Internal-Api-Key from gateway (validate against env)
+# - Payout handler invokes a pluggable 'submit_to_acquirer' function which MUST be implemented
+# - Logging and structured error responses included
+#
+# NOTE: This is a template. Replace `submit_to_acquirer` with real integration (bank/acquirer).
+# Do NOT return real card/pci data in logs in production.
+
+import os
+import logging
+from typing import Optional
+from fastapi import FastAPI, Header, HTTPException, Request
+from pydantic import BaseModel
+
+LOG = logging.getLogger("processor.main")
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+
+app = FastAPI(title="Processor")
+
+INTERNAL_API_KEY = os.getenv("INTERNAL_API_KEY", "")
+REQUIRE_API_KEY = bool(INTERNAL_API_KEY)
+
+class PayoutRequest(BaseModel):
+    merchant_id: str
+    cardNumber: str
+    expiry: str
+    cvc: str
+    amount: str
+    currency: str
+    protocol: Optional[str] = ""
+    authCode: Optional[str] = ""
+    payoutMethod: Optional[str] = ""
+    payoutDetails: Optional[str] = ""
+
+class PayoutResponse(BaseModel):
+    status: str
+    job_id: Optional[str] = None
+    de39: Optional[str] = None
+    detail: Optional[str] = None
+
+@app.get("/health")
+async def health():
+    return {"status": "ok", "service": "processor"}
+
+def validate_internal_key(x_key: Optional[str]):
+    if REQUIRE_API_KEY:
+        if not x_key or x_key != INTERNAL_API_KEY:
+            raise HTTPException(status_code=401, detail="missing or invalid internal API key")
+
+# Placeholder: you must implement this to contact acquirer/gateway
+def submit_to_acquirer(payload: dict) -> dict:
+    """
+    Replace with real implementation that calls your acquirer or bank.
+    Expected return (example):
+      { "status": "approved", "de39": "00", "txn_id": "..." }
+    or
+      { "status": "declined", "de39": "05" }
+    """
+    LOG.info("submit_to_acquirer called (DEV-STUB) - implement real integration")
+    # DEV STUB: raise an error so operator is forced to implement
+    raise RuntimeError("submit_to_acquirer not implemented - replace with real acquirer integration")
+
+@app.post("/payouts/payout", response_model=PayoutResponse)
+async def payout_handler(req: PayoutRequest, x_internal_api_key: Optional[str] = Header(None)):
+    # Validate internal key
+    validate_internal_key(x_internal_api_key)
+
+    # Basic validation
+    if not req.merchant_id or not req.amount:
+        raise HTTPException(status_code=400, detail="merchant_id and amount required")
+
+    payload = req.dict()
+    LOG.info("Received payout request merchant=%s amount=%s", req.merchant_id, req.amount)
+
+    try:
+        result = submit_to_acquirer(payload)
+    except Exception as e:
+        LOG.exception("Acquirer submission failed")
+        # return structured error so gateway can map to UI
+        raise HTTPException(status_code=502, detail=f"Acquirer submission failed: {e}")
+
+    # Normalize result into PayoutResponse form
+    status_text = result.get("status", "unknown")
+    job_id = result.get("job_id") or result.get("txn_id")
+    de39 = result.get("de39") or result.get("DE39") or ( "00" if status_text == "approved" else "96" )
+
+    return PayoutResponse(status=status_text, job_id=job_id, de39=de39, detail=result.get("detail"))
+
+# To run: uvicorn processor.app.server:app --host 0.0.0.0 --port 8000
+# In production, run behind proper TLS reverse proxy or enable uvicorn TLS with certs.

@@ -1,0 +1,149 @@
+# server.new.py - Gateway transaction endpoint (drop-in)
+# Destination inside container: /app/app/app/app/gateway/app/server.py
+# NOTE: after copying into container, restart project-gateway.
+
+from fastapi import FastAPI, Request, HTTPException
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel, Field
+import logging
+import traceback
+
+LOG = logging.getLogger('gateway')
+app = FastAPI(title='Gateway')
+
+# Try to import existing send_iso_to_processor helper from likely modules.
+# If this fails, edit this file to import the correct module path.
+try:
+    from tcp_client import send_iso_to_processor
+except Exception:
+    try:
+        from app.tcp_client import send_iso_to_processor
+    except Exception:
+        try:
+            from gateway.app.tcp_client import send_iso_to_processor
+        except Exception:
+            send_iso_to_processor = None
+            LOG.warning("send_iso_to_processor not auto-imported; edit server.py to import it correctly. Import error: %s", traceback.format_exc())
+
+class TransactionIn(BaseModel):
+    cardNumber: str | None = Field(None)
+    card_number: str | None = None
+    pan: str | None = None
+    card_pan: str | None = None
+
+    expiry: str | None = None
+    cvc: str | None = None
+
+    amount: str | float | int = Field(...)
+
+    currency: str | None = None
+
+    authCode: str | None = None
+    auth_code: str | None = None
+    auth: str | None = None
+
+    protocol: str | None = None
+    protocolCode: str | None = None
+    protocol_code: str | None = None
+
+    processing_code: str | None = None
+    processingCode: str | None = None
+
+    terminal_id: str | None = None
+    merchant_id: str | None = None
+
+    stan: str | None = None
+    local_time: str | None = None
+    local_date: str | None = None
+
+    class Config:
+        extra = "allow"
+
+def _norm_auth_code(val: str | None) -> str:
+    v = (val or "")
+    v = str(v).strip()
+    if not v:
+        return "000000"
+    if v.isdigit():
+        if len(v) == 4:
+            return "00" + v
+        if len(v) == 6:
+            return v
+    return "000000"
+
+def _pick_pan(data: dict) -> str:
+    return (data.get("cardNumber") or data.get("card_number")
+            or data.get("pan") or data.get("card_pan") or "")
+
+@app.post("/api/transactions")
+async def post_transaction(request: Request):
+    try:
+        payload = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid JSON body")
+
+    LOG.info("Received transaction payload: %s", {k:v for k,v in payload.items() if k.lower()!='cvc'})
+
+    # Validate with pydantic to get helpful 422s when mandatory fields truly missing
+    try:
+        t = TransactionIn(**payload)
+    except Exception as e:
+        LOG.warning("Validation error: %s", e)
+        raise HTTPException(status_code=422, detail=str(e))
+
+    try:
+        amount_val = float(payload.get("amount", 0) or 0)
+    except Exception:
+        amount_val = 0.0
+    de4 = f"{int(amount_val * 100):012d}"
+
+    fields = {
+        "2": _pick_pan(payload),
+        "3": (payload.get("processing_code") or payload.get("processingCode") or "000000"),
+        "4": de4,
+        "7": (payload.get("transmission_datetime") or "1010060054"),
+        "11": (payload.get("stan") or "000001"),
+        "12": (payload.get("local_time") or "060054"),
+        "13": (payload.get("local_date") or "1010"),
+        "41": (payload.get("terminal_id") or payload.get("terminalId") or "TERMINAL_ID_PLACEHOLDER"),
+        "42": (payload.get("merchant_id") or payload.get("merchantId") or "M1"),
+        "49": (payload.get("currency") or t.currency or "840"),
+    }
+
+    protocol = (payload.get("protocol") or payload.get("protocol_code") or payload.get("protocolCode") or "")
+    fields["protocol"] = str(protocol).strip() or "201.1"
+    raw_auth = (payload.get("authCode") or payload.get("auth_code") or payload.get("auth") or "")
+    fields["38"] = _norm_auth_code(raw_auth)
+
+    if not fields["2"]:
+        LOG.warning("Missing PAN (DE2) in request; returning ISO 30 format error")
+        return JSONResponse(status_code=400, content={"success": False, "error": "Missing PAN", "mti_resp": "30"})
+
+    masked_pan = (fields["2"][:6] + "*" * max(0, len(fields["2"]) - 10) + fields["2"][-4:]) if len(fields["2"])>=10 else "****"
+    LOG.info("Forwarding ISO fields: 2=%s protocol=%s 38=%s 4=%s", masked_pan, fields["protocol"], fields["38"], fields["4"])
+
+    if send_iso_to_processor is None:
+        LOG.error("send_iso_to_processor helper not available. Please set correct import in server.py")
+        raise HTTPException(status_code=500, detail="Gateway not configured: send_iso_to_processor missing")
+
+    mti = payload.get("mti", "0200")
+    try:
+        result = await send_iso_to_processor(mti=mti, fields=fields)
+    except Exception as e:
+        LOG.exception("Error calling send_iso_to_processor: %s", e)
+        return JSONResponse(status_code=500, content={"success": False, "error": "call_failed", "detail": str(e)})
+
+    return JSONResponse({
+        "received": True,
+        "data": payload,
+        "processor_result": {
+            "success": result.get("success"),
+            "error": result.get("error"),
+            "mti_resp": result.get("mti_resp"),
+            "json_resp": result.get("json_resp"),
+        }
+    })
+
+@app.get("/api/healthz")
+async def healthz():
+    return {"status": "ok", "service": "gateway"}

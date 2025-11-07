@@ -1,0 +1,79 @@
+# gateway_iso_mapper.py
+# Small helper to map gateway JSON -> ISO-style "fields" dict expected by processor.
+# Designed to be conservative and test-friendly; adjust field rules per your acquirer spec.
+
+import time
+from typing import Dict, Any
+
+CURRENCY_NUM = {
+    "USD": "840",
+    "EUR": "978",
+    "GBP": "826",
+    "INR": "356",
+    # add more as required
+}
+
+def _to_cents(amount: Any) -> str:
+    """Convert decimal amount (units) to minor units (cents) as string without decimals."""
+    try:
+        a = float(amount)
+    except Exception:
+        return "0"
+    cents = int(round(a * 100))  # change multiplier if your processor expects different scale
+    return str(cents)
+
+def _now_fields():
+    t = time.gmtime()  # use UTC for consistent logs; swap to localtime() if needed
+    de7 = time.strftime("%m%d%H%M%S", t)   # MMDDhhmmss
+    de12 = time.strftime("%H%M%S", t)      # hhmmss
+    de13 = time.strftime("%m%d", t)        # MMDD
+    return de7, de12, de13
+
+def build_iso_fields(body: Dict[str, Any]) -> Dict[str, str]:
+    """
+    Map common gateway keys to ISO 'fields' expected by the processor mock.
+    This is a best-effort mapping. Adjust per your processor/acquirer field spec.
+    """
+    de = {}
+
+    # Primary account number (PAN)
+    pan = body.get("cardNumber") or body.get("pan") or body.get("2") or body.get("card_number")
+    if pan:
+        de["2"] = str(pan)
+
+    # Processing code (DE3) - default minimal
+    de["3"] = str(body.get("processing_code") or body.get("processingCode") or body.get("method") or "000000")
+
+    # Amount in minor units (DE4)
+    amt = body.get("amount") or body.get("value") or body.get("4")
+    de["4"] = _to_cents(amt)
+
+    # Transmission datetime (DE7), local time (DE12), local date (DE13)
+    de7, de12, de13 = _now_fields()
+    de["7"] = body.get("de7") or body.get("trans_datetime") or de7
+    de["12"] = body.get("de12") or body.get("local_time") or de12
+    de["13"] = body.get("de13") or body.get("local_date") or de13
+
+    # STAN (DE11) - use auth_code or provided stan
+    de["11"] = str(body.get("stan") or body.get("system_trace") or body.get("auth_code") or "000000")[:6]
+
+    # Retrieval reference number/rrn (DE37) if provided
+    if body.get("rrn") or body.get("reference"):
+        de["37"] = str(body.get("rrn") or body.get("reference"))
+
+    # Terminal ID (DE41) and Merchant ID (DE42)
+    de["41"] = str(body.get("terminal") or body.get("terminal_id") or body.get("terminalId") or body.get("tid") or "TERMINAL_ID_PLACEHOLDER")[:8]
+    de["42"] = str(body.get("merchant_id") or body.get("merchant") or body.get("merchantId") or "MERCH000001")[:15]
+
+    # Currency (DE49)
+    cur = body.get("currency") or body.get("cur") or "USD"
+    de["49"] = CURRENCY_NUM.get(str(cur).upper(), str(cur) if str(cur).isdigit() else "840")
+
+    # Authorization code (DE38) if provided
+    if body.get("auth_code") or body.get("authCode") or body.get("auth"):
+        de["38"] = str(body.get("auth_code") or body.get("authCode") or body.get("auth"))[:6]
+
+    # Additional helpful debug meta (not standard ISO fields) can be inserted in high DE numbers if processor allows
+    # For now we keep mapping minimal and standard.
+
+    return de

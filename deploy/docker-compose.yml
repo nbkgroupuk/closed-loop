@@ -1,0 +1,28 @@
+services:
+  processor:
+    restart: always
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8000/healthz || exit 1"]
+      interval: 15s
+      timeout: 3s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: "512M"
+        reservations:
+          cpus: "0.25"
+          memory: "128M"
+
+  gateway:
+    restart: always
+    environment:
+      - PROCESSOR_HOST=project-processor
+      - PROCESSOR_PORT=9000
+    depends_on:
+      processor:
+        condition: service_healthy
+
+  nginx:
+    restart: always

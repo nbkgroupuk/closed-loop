@@ -1,0 +1,759 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Black Rock Terminal - Real-Time Card Payment Terminal</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.3/css/all.min.css" />
+  <link href="https://fonts.googleapis.com/css2?family=Roboto+Mono&display=swap" rel="stylesheet" />
+  <style>
+    body { font-family: 'Roboto Mono', monospace; background:#000; color:#e2e8f0; }
+    input::-webkit-inner-spin-button, input::-webkit-outer-spin-button { -webkit-appearance:none; margin:0; }
+    @media print { body *{visibility:hidden;} #printableArea,#printableArea *{visibility:visible;} #printableArea{position:absolute;left:0;top:0;width:100%;} }
+    .modal-backdrop{ background-color:rgba(0,0,0,0.75); }
+  </style>
+</head>
+<body class="min-h-screen flex flex-col justify-center items-center p-6 bg-black">
+
+  <div class="w-full max-w-5xl bg-gray-900 rounded-2xl shadow-xl p-8 space-y-8 border border-gray-700">
+    <h1 class="text-4xl font-extrabold text-center mb-6 tracking-widest text-white select-none">Black Rock Terminal</h1>
+
+    <!-- LOGIN INTERFACE -->
+    <section id="loginSection" class="max-w-md mx-auto bg-gray-900 rounded-lg p-6 shadow-lg border border-gray-700" role="region" aria-label="Merchant Login">
+      <h2 class="text-2xl font-semibold mb-4 text-center text-white">Merchant Login</h2>
+      <form id="loginForm" autocomplete="off" class="space-y-5" novalidate>
+        <div>
+          <label for="merchantEmail" class="block mb-1 font-semibold text-gray-300">Username</label>
+          <input type="text" id="merchantEmail" name="merchantEmail" required placeholder="admin" class="w-full rounded-md px-4 py-3 bg-gray-800 border border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" aria-describedby="usernameHelp" />
+          <p id="usernameHelp" class="text-xs text-gray-500 mt-1 select-text">Use username: <code>admin</code></p>
+        </div>
+        <div>
+          <label for="merchantPassword" class="block mb-1 font-semibold text-gray-300">Password</label>
+          <input type="password" id="merchantPassword" name="merchantPassword" required placeholder="••••••••" class="w-full rounded-md px-4 py-3 bg-gray-800 border border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" aria-describedby="passwordHelp" />
+          <p id="passwordHelp" class="text-xs text-gray-500 mt-1 select-text">Use password: <code>Br_3339</code></p>
+        </div>
+        <div class="flex justify-between items-center">
+          <button type="submit" class="bg-blue-600 hover:bg-blue-700 transition-colors duration-300 rounded-md py-3 font-semibold flex justify-center items-center space-x-2 px-6 text-white" aria-label="Login to payment terminal">
+            <i class="fas fa-sign-in-alt"></i>
+            <span>Login</span>
+          </button>
+          <button type="button" id="forgotPasswordBtn" class="text-blue-400 hover:text-blue-600 underline text-sm focus:outline-none" aria-label="Forgot password">Forgot Password?</button>
+        </div>
+      </form>
+      <p id="loginError" class="mt-3 text-red-500 text-center hidden" role="alert" aria-live="assertive"></p>
+    </section>
+
+    <!-- TERMINAL ONLINE/OFFLINE STATUS -->
+    <div id="terminalStatus" class="max-w-md mx-auto flex justify-center items-center space-x-3 text-gray-400 select-none" aria-live="polite" aria-atomic="true" role="status">
+      <span id="statusIndicator" class="w-4 h-4 rounded-full bg-red-600 animate-pulse"></span>
+      <span id="statusText" class="text-sm font-semibold">Offline</span>
+    </div>
+
+    <!-- PAYMENT TERMINAL -->
+    <section id="terminalSection" class="hidden max-w-5xl mx-auto bg-gray-900 rounded-lg p-8 shadow-lg border border-gray-700" role="region" aria-label="Payment Terminal" aria-live="polite" aria-atomic="true">
+      <div class="flex justify-between items-center mb-6">
+        <h2 class="text-3xl font-semibold text-white">Process Payment</h2>
+        <button id="logoutBtn" class="bg-red-600 hover:bg-red-700 transition-colors duration-300 rounded-md py-2 px-4 font-semibold flex items-center space-x-2 text-white" aria-label="Logout">
+          <i class="fas fa-sign-out-alt"></i><span>Logout</span>
+        </button>
+      </div>
+      <form id="paymentForm" autocomplete="off" class="grid grid-cols-1 md:grid-cols-2 gap-6" novalidate>
+        <div class="col-span-2 md:col-span-1">
+          <label for="cardNumber" class="block mb-1 font-semibold text-gray-300">Card Number</label>
+          <input type="text" id="cardNumber" name="cardNumber" maxlength="19" placeholder="1234 5678 9012 3456" inputmode="numeric" pattern="[\d ]{13,19}" required class="w-full rounded-md px-4 py-3 bg-gray-800 border border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500 tracking-widest text-white" aria-describedby="cardNumberHelp" />
+          <p id="cardNumberHelp" class="text-xs text-gray-500 mt-1">Enter full card number (16 digits)</p>
+        </div>
+        <div>
+          <label for="expiry" class="block mb-1 font-semibold text-gray-300">Expiry (MM/YY)</label>
+          <input type="text" id="expiry" name="expiry" maxlength="5" placeholder="MM/YY" pattern="^(0[1-9]|1[0-2])\/?([0-9]{2})$" required class="w-full rounded-md px-4 py-3 bg-gray-800 border border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500 text-center text-white" aria-describedby="expiryHelp" inputmode="numeric" />
+          <p id="expiryHelp" class="text-xs text-gray-500 mt-1">Format: MM/YY</p>
+        </div>
+        <div>
+          <label for="cvc" class="block mb-1 font-semibold text-gray-300">CVC / CVV</label>
+          <input type="text" id="cvc" name="cvc" maxlength="4" placeholder="123" pattern="^\d{3,4}$" required class="w-full rounded-md px-4 py-3 bg-gray-800 border border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500 text-center text-white" aria-describedby="cvcHelp" inputmode="numeric" />
+          <p id="cvcHelp" class="text-xs text-gray-500 mt-1">3 or 4 digit security code</p>
+        </div>
+        <div>
+          <label for="amount" class="block mb-1 font-semibold text-gray-300">Amount</label>
+          <input type="number" id="amount" name="amount" min="0.01" step="0.01" placeholder="0.00" required class="w-full rounded-md px-4 py-3 bg-gray-800 border border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500 text-center text-white" aria-describedby="amountHelp" inputmode="decimal" />
+          <p id="amountHelp" class="text-xs text-gray-500 mt-1">Enter amount to charge</p>
+        </div>
+        <div>
+          <label for="currency" class="block mb-1 font-semibold text-gray-300">Currency</label>
+          <select id="currency" name="currency" required class="w-full rounded-md px-4 py-3 bg-gray-800 border border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" aria-describedby="currencyHelp">
+            <option value="" disabled selected>Select currency</option>
+            <option value="USD">USD - US Dollar</option>
+            <option value="EUR">EUR - Euro</option>
+            <option value="GBP">GBP - British Pound</option>
+          </select>
+          <p id="currencyHelp" class="text-xs text-gray-500 mt-1">Select transaction currency (No Crypto)</p>
+        </div>
+        <div>
+          <label for="protocol" class="block mb-1 font-semibold text-gray-300">Protocol</label>
+          <select id="protocol" name="protocol" required class="w-full rounded-md px-4 py-3 bg-gray-800 border border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" aria-describedby="protocolHelp">
+            <option value="" disabled selected>Select protocol</option>
+            <option value="POS Terminal -101.1 (4-digit approval)">POS Terminal -101.1 (4-digit approval)</option>
+            <option value="POS Terminal -101.4 (6-digit approval)">POS Terminal -101.4 (6-digit approval)</option>
+            <option value="POS Terminal -101.6 (Pre-authorization)">POS Terminal -101.6 (Pre-authorization)</option>
+            <option value="POS Terminal -101.7 (4-digit approval)">POS Terminal -101.7 (4-digit approval)</option>
+            <option value="POS Terminal -101.8 (PIN-LESS transaction)">POS Terminal -101.8 (PIN-LESS transaction)</option>
+            <option value="POS Terminal -201.1 (6-digit approval)">POS Terminal -201.1 (6-digit approval)</option>
+            <option value="POS Terminal -201.3 (6-digit approval)">POS Terminal -201.3 (6-digit approval)</option>
+            <option value="POS Terminal -201.5 (6-digit approval)">POS Terminal -201.5 (6-digit approval)</option>
+          </select>
+          <p id="protocolHelp" class="text-xs text-gray-500 mt-1">Select the transaction protocol</p>
+        </div>
+        <div>
+          <label for="authCode" class="block mb-1 font-semibold text-gray-300">Auth Code</label>
+          <input type="text" id="authCode" name="authCode" maxlength="6" placeholder="Enter 4 or 6 digit auth code" pattern="^\d{4}$|^\d{6}$" required class="w-full rounded-md px-4 py-3 bg-gray-800 border border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500 text-center text-white" aria-describedby="authCodeHelp" inputmode="numeric" />
+          <p id="authCodeHelp" class="text-xs text-gray-500 mt-1">4 or 6 digit numeric approval code</p>
+        </div>
+        <div class="col-span-2 md:col-span-1">
+          <label class="block mb-1 font-semibold text-gray-300">Payout Method</label>
+          <div class="flex space-x-4">
+            <label class="inline-flex items-center cursor-pointer">
+              <input type="radio" name="payoutMethodRadio" value="Bank Account" class="form-radio text-green-500" checked />
+              <span class="ml-2 text-gray-300 select-none">Bank Account</span>
+            </label>
+            <label class="inline-flex items-center cursor-pointer">
+              <input type="radio" name="payoutMethodRadio" value="Crypto Wallet" class="form-radio text-green-500" />
+              <span class="ml-2 text-gray-300 select-none">Crypto Wallet</span>
+            </label>
+          </div>
+          <p class="text-xs text-gray-500 mt-1">Select payout method</p>
+        </div>
+        <div class="col-span-2 md:col-span-1">
+          <label for="payoutDetails" class="block mb-1 font-semibold text-gray-300">Payout Details</label>
+          <textarea id="payoutDetails" name="payoutDetails" readonly rows="3" class="w-full rounded-md px-4 py-3 bg-gray-800 border border-gray-600 text-gray-500 cursor-not-allowed resize-none" aria-describedby="payoutDetailsHelp">Loading payout credentials...</textarea>
+          <p id="payoutDetailsHelp" class="text-xs text-gray-500 mt-1">Merchant payout credentials (no manual entry)</p>
+        </div>
+        <div class="col-span-2 flex flex-col md:flex-row md:items-center md:justify-between space-y-4 md:space-y-0">
+          <button type="submit" id="processTransactionBtn" class="w-full md:w-auto bg-green-600 hover:bg-green-700 transition-colors duration-300 rounded-md py-4 font-semibold flex justify-center items-center space-x-3 text-white" aria-label="Process transaction">
+            <i class="fas fa-credit-card"></i>
+            <span>Process Transaction</span>
+          </button>
+          <button type="button" id="printHistoryBtn" class="w-full md:w-auto bg-gray-700 hover:bg-gray-600 transition-colors duration-300 rounded-md py-4 font-semibold flex justify-center items-center space-x-3 text-white" aria-label="Print transaction history">
+            <i class="fas fa-print"></i>
+            <span>Print Transaction History</span>
+          </button>
+        </div>
+      </form>
+
+      <section id="notifications" class="mt-8 max-h-64 overflow-y-auto bg-gray-900 rounded-lg p-4 space-y-3 font-mono text-sm text-green-400" role="log" aria-live="polite" aria-atomic="true">
+        <h3 class="text-xl font-semibold mb-3 text-center text-blue-400">Real-Time MTI Notifications</h3>
+        <ul id="notificationList" class="list-disc list-inside space-y-1"></ul>
+      </section>
+
+      <section id="transactionHistorySection" class="mt-8 bg-gray-900 rounded-lg p-6 max-h-96 overflow-y-auto font-mono text-sm text-gray-300" aria-label="Transaction History">
+        <h3 class="text-xl font-semibold mb-4 text-center text-blue-400">Transaction History</h3>
+        <table class="w-full table-auto border-collapse border border-gray-700">
+          <thead>
+            <tr class="bg-gray-800">
+              <th class="border border-gray-700 px-3 py-2 text-left">Date & Time</th>
+              <th class="border border-gray-700 px-3 py-2 text-left">Card Ending</th>
+              <th class="border border-gray-700 px-3 py-2 text-left">Amount</th>
+              <th class="border border-gray-700 px-3 py-2 text-left">Currency</th>
+              <th class="border border-gray-700 px-3 py-2 text-left">Protocol</th>
+              <th class="border border-gray-700 px-3 py-2 text-left">Auth Code</th>
+              <th class="border border-gray-700 px-3 py-2 text-left">Status</th>
+            </tr>
+          </thead>
+          <tbody id="transactionHistoryBody">
+            <tr><td colspan="7" class="text-center py-4 text-gray-500">No transactions yet.</td></tr>
+          </tbody>
+        </table>
+      </section>
+    </section>
+  </div>
+
+  <!-- Forgot Password Modal -->
+  <div id="forgotPasswordModal" class="fixed inset-0 flex items-center justify-center z-50 hidden" role="dialog" aria-modal="true" aria-labelledby="forgotPasswordTitle" aria-describedby="forgotPasswordDesc">
+    <div class="modal-backdrop absolute inset-0"></div>
+    <div class="relative bg-gray-900 rounded-lg shadow-lg max-w-md w-full p-6 border border-gray-700">
+      <h3 id="forgotPasswordTitle" class="text-xl font-semibold mb-4 text-white">Forgot Password</h3>
+      <p id="forgotPasswordDesc" class="mb-4 text-gray-400">To reset your password, please authenticate using your Authenticator app (Google Authenticator, Authy, etc.).</p>
+      <form id="forgotPasswordForm" class="space-y-4" novalidate>
+        <div>
+          <label for="authCodeFP" class="block mb-1 font-semibold text-gray-300">Authenticator Code</label>
+          <input type="text" id="authCodeFP" name="authCodeFP" maxlength="6" placeholder="Enter 6-digit code" pattern="^\d{6}$" required class="w-full rounded-md px-4 py-3 bg-gray-800 border border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500 text-white text-center" inputmode="numeric" aria-describedby="authCodeFPHelp" />
+          <p id="authCodeFPHelp" class="text-xs text-gray-500 mt-1">Enter the 6-digit code from your Authenticator app</p>
+        </div>
+        <div class="flex justify-end space-x-4">
+          <button type="button" id="cancelForgotPassword" class="bg-gray-700 hover:bg-gray-600 transition-colors duration-300 rounded-md py-2 px-4 font-semibold text-white">Cancel</button>
+          <button type="submit" class="bg-blue-600 hover:bg-blue-700 transition-colors duration-300 rounded-md py-2 px-4 font-semibold text-white">Verify</button>
+        </div>
+      </form>
+      <p id="forgotPasswordError" class="mt-3 text-red-500 text-center hidden" role="alert" aria-live="assertive"></p>
+    </div>
+  </div>
+
+  <!-- Processing Modal -->
+  <div id="processingModal" class="fixed inset-0 flex items-center justify-center z-50 hidden" role="alert" aria-live="assertive" aria-modal="true" aria-label="Processing transaction">
+    <div class="modal-backdrop absolute inset-0"></div>
+    <div class="relative bg-gray-900 rounded-lg shadow-lg max-w-sm w-full p-6 border border-gray-700 flex flex-col items-center space-y-4">
+      <svg class="animate-spin h-12 w-12 text-blue-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" aria-hidden="true">
+        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path>
+      </svg>
+      <p class="text-white text-lg font-semibold">Processing<span id="processingDots">.</span></p>
+    </div>
+  </div>
+
+  <!-- Result Popup -->
+  <div id="resultPopup" class="fixed inset-0 flex items-center justify-center z-50 hidden" role="alert" aria-live="assertive" aria-modal="true" aria-label="Transaction result">
+    <div class="modal-backdrop absolute inset-0"></div>
+    <div class="relative bg-gray-900 rounded-lg shadow-lg max-w-sm w-full p-6 border border-gray-700 flex flex-col items-center space-y-4">
+      <div id="resultIcon" class="text-green-500 text-6xl"><i class="fas fa-check-circle"></i></div>
+      <p id="resultMessage" class="text-white text-lg font-semibold text-center"></p>
+      <button id="closeResultPopup" class="bg-blue-600 hover:bg-blue-700 transition-colors duration-300 rounded-md py-2 px-6 font-semibold text-white focus:outline-none">Close</button>
+    </div>
+  </div>
+
+  <script>
+    // === API Bridge configuration ===
+    // Set API_BASE to your Render backend URL (no trailing slash), e.g.:
+    // const API_BASE = "https://api.blackrock.yourdomain";
+    const API_BASE = window.API_BASE || "http://localhost:8100";
+    const API_TRANSACTIONS_URL = `${API_BASE}/transactions`;
+    const API_PAYOUT_URL = `${API_BASE}/payout`;
+    const API_WS_URL = `${API_BASE.replace(/^http/, 'ws')}/ws`;
+
+    // Elements
+    const loginSection = document.getElementById("loginSection");
+    const terminalSection = document.getElementById("terminalSection");
+    const loginForm = document.getElementById("loginForm");
+    const loginError = document.getElementById("loginError");
+    const paymentForm = document.getElementById("paymentForm");
+    const payoutDetailsInput = document.getElementById("payoutDetails");
+    const notificationList = document.getElementById("notificationList");
+    const authCodeInput = document.getElementById("authCode");
+    const protocolSelect = document.getElementById("protocol");
+    const amountInput = document.getElementById("amount");
+    const currencySelect = document.getElementById("currency");
+    const transactionHistoryBody = document.getElementById("transactionHistoryBody");
+    const printHistoryBtn = document.getElementById("printHistoryBtn");
+    const logoutBtn = document.getElementById("logoutBtn");
+    const terminalStatus = document.getElementById("terminalStatus");
+    const statusIndicator = document.getElementById("statusIndicator");
+    const statusText = document.getElementById("statusText");
+// === Transaction history persistence (localStorage) ===
+// NOTE: uses key 'tx_history_v1'. Keeps date as ISO string.
+let transactionHistory = window.transactionHistory || [];
+
+// Save transactionHistory to localStorage (convert Date -> ISO)
+function saveTransactionHistory(){
+  try{
+    const serial = transactionHistory.map(t => {
+      const copy = Object.assign({}, t);
+      if (copy.date && copy.date.toISOString) copy.date = copy.date.toISOString();
+      else if (copy.date && typeof copy.date === 'object') copy.date = new Date(copy.date).toISOString();
+      else if (!copy.date) copy.date = (new Date()).toISOString();
+      return copy;
+    });
+    localStorage.setItem('tx_history_v1', JSON.stringify(serial));
+  }catch(e){ console.warn('saveTransactionHistory err', e); }
+}
+
+// Load transactionHistory from localStorage and render rows
+function loadTransactionHistory(){
+  try{
+    const raw = localStorage.getItem('tx_history_v1');
+    if (!raw) return;
+    const arr = JSON.parse(raw);
+    // convert date strings back to Date objects when useful
+    arr.forEach(a => {
+      if (a.date && typeof a.date === 'string') a.date = new Date(a.date);
+      appendTransaction(a);
+    });
+  }catch(e){ console.warn('loadTransactionHistory err', e); }
+}
+
+// Centralized renderer for a single transaction row (used on create & restore)
+function _renderTransactionRow(tx){
+  if (!transactionHistoryBody) return;
+  // ensure the table exists
+  if (transactionHistory.length === 0) { transactionHistoryBody.innerHTML = ""; }
+
+  // set job id on row for WS updates
+  const tr = document.createElement("tr");
+  tr.className = "border border-gray-700";
+  if (tx.job_id) tr.dataset.jobId = tx.job_id;
+
+  const statusClass = (tx.status && tx.status.toLowerCase && tx.status.toLowerCase() === 'approved') ? 'text-green-400 font-semibold' : 'text-red-500 font-semibold';
+  const txLinkHTML = tx.txhash ? `<div class="mt-1"><a href="https://etherscan.io/tx/${tx.txhash}" target="_blank" rel="noopener noreferrer" class="text-xs text-blue-300 hover:underline">View tx</a></div>` : "";
+  const dateStr = (tx.date && tx.date.toLocaleString) ? tx.date.toLocaleString() : (new Date()).toLocaleString();
+  const amountStr = (typeof tx.amount !== 'undefined') ? tx.amount : '';
+
+  tr.innerHTML = `
+    <td class="border border-gray-700 px-3 py-1">${dateStr}</td>
+    <td class="border border-gray-700 px-3 py-1">${tx.cardEnding || ''}</td>
+    <td class="border border-gray-700 px-3 py-1">${amountStr}</td>
+    <td class="border border-gray-700 px-3 py-1">${tx.currency || ''}</td>
+    <td class="border border-gray-700 px-3 py-1">${tx.protocol || ''}</td>
+    <td class="border border-gray-700 px-3 py-1">${tx.authCode || ''}</td>
+    <td class="border border-gray-700 px-3 py-1 ${statusClass}">
+      ${tx.status || ''}
+      ${txLinkHTML}
+    </td>
+  `;
+  // newest on top
+  transactionHistoryBody.prepend(tr);
+}
+
+// Public helper to append a tx (call this whenever you add a tx)
+function appendTransaction(tx){
+  try{
+    // normalize date
+    if (tx.date && typeof tx.date === 'string') tx.date = new Date(tx.date);
+    if (!tx.date) tx.date = new Date();
+
+    // ensure transactionHistory array exists
+    if (!Array.isArray(transactionHistory)) transactionHistory = [];
+
+    // push into memory
+    transactionHistory.push(tx);
+
+    // render one row for this tx
+    try{ _renderTransactionRow(tx); } catch(e){ console.warn('_renderTransactionRow error', e); }
+
+    // persist to localStorage (dates -> ISO)
+    try{
+      const serial = transactionHistory.map(t => {
+        const c = Object.assign({}, t);
+        if (c.date && c.date.toISOString) c.date = c.date.toISOString();
+        else if (c.date && typeof c.date === 'object') c.date = new Date(c.date).toISOString();
+        else if (!c.date) c.date = (new Date()).toISOString();
+        return c;
+      });
+      localStorage.setItem('tx_history_v1', JSON.stringify(serial));
+    }catch(e){ console.warn('saveTransactionHistory err', e); }
+  }catch(e){
+    console.warn('appendTransaction err', e);
+  }
+}
+
+// Ensure loadTransactionHistory uses appendTransaction only
+function loadTransactionHistory(){
+  try{
+    const raw = localStorage.getItem('tx_history_v1');
+    if (!raw) return;
+    const arr = JSON.parse(raw);
+    // clear existing rendered rows first (if your UI expects fresh render)
+    if (typeof transactionHistoryBody !== 'undefined' && transactionHistoryBody) transactionHistoryBody.innerHTML = '';
+    transactionHistory = [];
+    arr.forEach(a => {
+      if (a.date && typeof a.date === 'string') a.date = new Date(a.date);
+      appendTransaction(a);
+    });
+  }catch(e){ console.warn('loadTransactionHistory err', e); }
+}
+window.txPersistence = { save: saveTransactionHistory, load: loadTransactionHistory, append: appendTransaction };
+
+// Load saved history on script load
+loadTransactionHistory();
+
+// Optional: auto-save on unload (extra safety)
+window.addEventListener('beforeunload', saveTransactionHistory);
+
+
+    const forgotPasswordBtn = document.getElementById("forgotPasswordBtn");
+    const forgotPasswordModal = document.getElementById("forgotPasswordModal");
+    const forgotPasswordForm = document.getElementById("forgotPasswordForm");
+    const cancelForgotPassword = document.getElementById("cancelForgotPassword");
+    const forgotPasswordError = document.getElementById("forgotPasswordError");
+
+    const processingModal = document.getElementById("processingModal");
+    const processingDots = document.getElementById("processingDots");
+
+    const resultPopup = document.getElementById("resultPopup");
+    const resultIcon = document.getElementById("resultIcon");
+    const resultMessage = document.getElementById("resultMessage");
+    const closeResultPopup = document.getElementById("closeResultPopup");
+
+    const payoutMethodRadios = document.querySelectorAll('input[name="payoutMethodRadio"]');
+
+    const TEST_USER = "admin";
+    const TEST_PASS = "Br_3339";
+
+    let transactionHistory = [];
+
+    // Online status now tied to API reachability (instead of timer)
+    async function pingApi() {
+      try {
+        const r = await fetch(`${API_BASE}/health`, { method: 'GET' });
+        online = r.ok;
+      } catch { online = false; }
+      updateTerminalStatus();
+    }
+    let online = false;
+    setInterval(pingApi, 10000); // poll every 10s
+    pingApi();
+
+    function updateTerminalStatus() {
+      if (online) {
+        statusIndicator.classList.remove("bg-red-600", "animate-pulse");
+        statusIndicator.classList.add("bg-green-500");
+        statusText.textContent = "Online";
+        statusText.classList.remove("text-gray-400");
+        statusText.classList.add("text-green-500");
+        enableProcessButton();
+      } else {
+        statusIndicator.classList.remove("bg-green-500");
+        statusIndicator.classList.add("bg-red-600", "animate-pulse");
+        statusText.textContent = "Offline";
+        statusText.classList.remove("text-green-500");
+        statusText.classList.add("text-gray-400");
+        disableProcessButton();
+      }
+    }
+
+    function enableProcessButton(){ const btn = paymentForm.querySelector("button[type=submit]"); if(btn){ btn.disabled=false; btn.classList.remove("opacity-50","cursor-not-allowed"); } }
+    function disableProcessButton(){ const btn = paymentForm.querySelector("button[type=submit]"); if(btn){ btn.disabled=true; btn.classList.add("opacity-50","cursor-not-allowed"); } }
+
+    loginForm.addEventListener("submit", (e) => {
+      e.preventDefault();
+      loginError.classList.add("hidden");
+      const username = loginForm.merchantEmail.value.trim();
+      const password = loginForm.merchantPassword.value.trim();
+      if (!username || !password) { loginError.textContent = "Username and password are required."; loginError.classList.remove("hidden"); return; }
+      if (username !== TEST_USER || password !== TEST_PASS) { loginError.textContent = "Invalid username or password."; loginError.classList.remove("hidden"); return; }
+      const loginBtn = loginForm.querySelector("button[type=submit]");
+      loginBtn.disabled = true; loginBtn.innerHTML = `<i class="fas fa-spinner fa-spin"></i> Logging in...`;
+      setTimeout(() => {
+        loginSection.classList.add("hidden");
+        terminalSection.classList.remove("hidden");
+        loginBtn.disabled = false; loginBtn.innerHTML = `<i class=\"fas fa-sign-in-alt\"></i> Login`;
+        loadPayoutCredentials();
+        if (online) enableProcessButton(); else disableProcessButton();
+        try { connectWs(); } catch {}
+      }, 800);
+    });
+
+    function loadPayoutCredentials(){ updatePayoutDetails(); }
+    function updatePayoutDetails(){
+      const selected = Array.from(payoutMethodRadios).find(r => r.checked);
+      if (!selected) return;
+      if (selected.value === "Bank Account") {
+        payoutDetailsInput.value = "Bank: First National Bank\nAccount Number: 123456789\nRouting Number: 987654321";
+      } else {
+        payoutDetailsInput.value = "Wallet Address: 0xAbC1234Ef567890dEfABc1234567890aBCdef123";
+      }
+    }
+    payoutMethodRadios.forEach(r => r.addEventListener("change", updatePayoutDetails));
+
+    const cardNumberInput = document.getElementById("cardNumber");
+    cardNumberInput.addEventListener("input", (e) => {
+      let value = e.target.value.replace(/\D/g, "").substring(0, 16);
+      let formatted = "";
+      for (let i=0; i<value.length; i+=4){ if(i>0) formatted += " "; formatted += value.substring(i, i+4); }
+      e.target.value = formatted;
+    });
+
+    const expiryInput = document.getElementById("expiry");
+    expiryInput.addEventListener("input", (e) => {
+      let val = e.target.value.replace(/[^\d]/g, "").substring(0,4);
+      if (val.length >= 3) { val = val.substring(0,2) + "/" + val.substring(2); }
+      e.target.value = val;
+    });
+
+    protocolSelect.addEventListener("change", () => {
+      const protocol = protocolSelect.value;
+      const length = ({
+        "POS Terminal -101.1 (4-digit approval)": 4,
+        "POS Terminal -101.4 (6-digit approval)": 6,
+        "POS Terminal -101.6 (Pre-authorization)": 6,
+        "POS Terminal -101.7 (4-digit approval)": 4,
+        "POS Terminal -101.8 (PIN-LESS transaction)": 4,
+        "POS Terminal -201.1 (6-digit approval)": 6,
+        "POS Terminal -201.3 (6-digit approval)": 6,
+        "POS Terminal -201.5 (6-digit approval)": 6
+      })[protocol] || 6;
+      authCodeInput.maxLength = length;
+      authCodeInput.placeholder = `Enter ${length}-digit auth code`;
+      authCodeInput.value = "";
+    });
+
+    // --------- API bridge helpers -----------
+    async function sendTransactionToApi(payload){
+      const res = await fetch(API_TRANSACTIONS_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok){
+        const err = await res.json().catch(() => ({detail: res.statusText}));
+        const msg = (typeof err.detail === 'string') ? err.detail : (err.detail ? JSON.stringify(err.detail) : undefined);
+        throw new Error(msg || "Bridge error");}
+      return res.json();
+    }
+
+    async function createPayout(payload){
+      // the backend should return: { approved: true|false, de39: "...", de38: "...", job_id: "uuid", txhash: null|"..."}
+      const res = await fetch(API_PAYOUT_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok){
+        const err = await res.json().catch(()=>({detail:res.statusText}));
+        const msg = (typeof err.detail === 'string') ? err.detail : (err.detail ? JSON.stringify(err.detail) : undefined);
+        throw new Error(msg || "Payout API error");}
+
+      return res.json();
+    }
+
+    // --------- Form submit handler (patched to include job_id & txhash) -----------
+    paymentForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      if (!online){ alert("API offline. Please wait until it is online."); return; }
+
+      const cardNumberRaw = cardNumberInput.value.replace(/\s/g, "");
+      const expiry = expiryInput.value;
+      const cvc = paymentForm.cvc.value.trim();
+      const protocol = protocolSelect.value;
+      const authCode = authCodeInput.value.trim();
+      const amount = parseFloat(amountInput.value);
+      const currency = currencySelect.value;
+      const payoutMethod = Array.from(payoutMethodRadios).find(r => r.checked)?.value || "";
+
+      if (!/^\d{16}$/.test(cardNumberRaw)) { alert("Card number must be 16 digits."); cardNumberInput.focus(); return; }
+      if (!/^(0[1-9]|1[0-2])\/\d{2}$/.test(expiry)) { alert("Expiry must be in MM/YY format."); expiryInput.focus(); return; }
+      const [month, year] = expiry.split("/");
+      const expDate = new Date(2000 + parseInt(year, 10), parseInt(month, 10) - 1, 1);
+      const now = new Date(); now.setDate(1); now.setHours(0,0,0,0);
+      if (expDate < now) { alert("Card expiry date is in the past."); expiryInput.focus(); return; }
+      if (!/^\d{3,4}$/.test(cvc)) { alert("CVC must be 3 or 4 digits."); paymentForm.cvc.focus(); return; }
+      if (isNaN(amount) || amount <= 0) { alert("Please enter a valid amount greater than zero."); amountInput.focus(); return; }
+      if (!currency) { alert("Please select a currency."); currencySelect.focus(); return; }
+      if (!protocol) { alert("Please select a valid protocol."); protocolSelect.focus(); return; }
+      const requiredAuthLength = authCodeInput.maxLength || 6;
+      if (!new RegExp(`^\\d{${requiredAuthLength}}$`).test(authCode)) { alert(`Auth code must be exactly ${requiredAuthLength} digits.`); authCodeInput.focus(); return; }
+
+      const submitBtn = paymentForm.querySelector("button[type=submit]");
+      submitBtn.disabled = true; submitBtn.innerHTML = `<i class='fas fa-spinner fa-spin'></i> Processing...`;
+      showProcessingModal();
+
+      try {
+        // Prefer client_id (the WS id) so backend's notify_client(job["merchant_id"]) reaches the same WS connection
+        const vtPayload = { merchant_id: (localStorage.getItem("client_id") || localStorage.getItem("merchant_id") || "merchant_default"), cardNumber: cardNumberRaw, expiry, cvc, amount: amount.toFixed(2), currency, protocol, authCode, payoutMethod, payoutDetails: payoutDetailsInput.value };
+        // Primary call: create payout/job on backend
+        const apiResult = await createPayout(vtPayload);
+
+        // create tx object for UI. backend may return job_id and/or txhash if broadcasted immediately
+        const txObj = {
+          date: new Date(),
+          cardEnding: cardNumberRaw.slice(-4),
+          amount: amount.toFixed(2),
+          currency,
+          protocol,
+          authCode,
+          status: apiResult.approved ? "Approved" : "Rejected",
+          payoutMethod,
+          job_id: apiResult.job_id || null,
+          txhash: apiResult.txhash || null
+        };
+
+        appendTransaction(txObj);
+        if (apiResult.approved) {
+          const msg = `Approved (DE39=${apiResult.de39}${apiResult.de38 ? ", Auth="+apiResult.de38 : ""})`;
+          showResultPopup(true, msg, txObj.txhash);
+        } else {
+          showResultPopup(false, `Rejected (DE39=${apiResult.de39})`, txObj.txhash);
+        }
+
+        paymentForm.reset();
+        authCodeInput.maxLength = 6; authCodeInput.placeholder = "Enter 4 or 6 digit auth code"; updatePayoutDetails();
+      } catch (error) {
+        showResultPopup(false, "Transaction Error: " + (error.message || error));
+      } finally {
+        submitBtn.disabled = false; submitBtn.innerHTML = `<i class='fas fa-credit-card'></i> Process Transaction`;
+        hideProcessingModal();
+      }
+    });
+
+    // --------- appendTransaction(patched) -----------
+    function appendTransaction(tx){
+      // tx expected shape:
+      // { date: Date, cardEnding: "1234", amount: "1.00", currency:"USD",
+      //   protocol:"...", authCode:"...", status:"Approved"|"Rejected", payoutMethod:"...", txhash: "0x...", job_id: "uuid" }
+
+      if (transactionHistory.length === 0) { transactionHistoryBody.innerHTML = ""; }
+      transactionHistory.push(tx);
+      const tr = document.createElement("tr");
+      tr.className = "border border-gray-700";
+
+      // set job id on row for WS updates
+      if (tx.job_id) tr.dataset.jobId = tx.job_id;
+
+      // status styling
+      const statusClass = (tx.status && tx.status.toLowerCase() === 'approved') ? 'text-green-400 font-semibold' : 'text-red-500 font-semibold';
+
+      // optional tx link HTML
+      const txLinkHTML = tx.txhash ? `<div class="mt-1"><a href="https://etherscan.io/tx/${tx.txhash}" target="_blank" rel="noopener noreferrer" class="text-xs text-blue-300 hover:underline">View tx</a></div>` : "";
+
+      // safe formatting for date & amount
+      const dateStr = (tx.date && tx.date.toLocaleString) ? tx.date.toLocaleString() : (new Date()).toLocaleString();
+      const amountStr = (typeof tx.amount !== 'undefined') ? tx.amount : '';
+
+      tr.innerHTML = `
+        <td class="border border-gray-700 px-3 py-1">${dateStr}</td>
+        <td class="border border-gray-700 px-3 py-1">${tx.cardEnding || ''}</td>
+        <td class="border border-gray-700 px-3 py-1">${amountStr}</td>
+        <td class="border border-gray-700 px-3 py-1">${tx.currency || ''}</td>
+        <td class="border border-gray-700 px-3 py-1">${tx.protocol || ''}</td>
+        <td class="border border-gray-700 px-3 py-1">${tx.authCode || ''}</td>
+        <td class="border border-gray-700 px-3 py-1 ${statusClass}">
+          ${tx.status || ''}
+          ${txLinkHTML}
+        </td>
+      `;
+      transactionHistoryBody.prepend(tr);
+    }
+
+    printHistoryBtn.addEventListener("click", () => {
+      const printContent = document.createElement("div");
+      printContent.id = "printableArea"; printContent.style.background = "#fff"; printContent.style.color = "#000"; printContent.style.padding = "1rem"; printContent.style.fontFamily = "'Roboto Mono', monospace";
+      printContent.innerHTML = `
+        <h2 style="text-align:center; margin-bottom:1rem;">Transaction History</h2>
+        <table border="1" cellspacing="0" cellpadding="5" style="width:100%; border-collapse: collapse; font-size: 12px;">
+          <thead><tr><th>Date & Time</th><th>Card Ending</th><th>Amount</th><th>Currency</th><th>Protocol</th><th>Auth Code</th><th>Status</th></tr></thead>
+          <tbody>
+          ${transactionHistory.map(tx => `
+            <tr><td>${tx.date.toLocaleString()}</td><td>${tx.cardEnding}</td><td>${tx.amount}</td><td>${tx.currency}</td><td>${tx.protocol}</td><td>${tx.authCode}</td><td>${tx.status}</td></tr>
+          `).join('')}
+          </tbody>
+        </table>`;
+      document.body.appendChild(printContent); window.print(); document.body.removeChild(printContent);
+    });
+
+    // Forgot Password Modal Logic
+    forgotPasswordBtn.addEventListener("click", () => { forgotPasswordError.classList.add("hidden"); forgotPasswordForm.authCodeFP.value = ""; forgotPasswordModal.classList.remove("hidden"); forgotPasswordForm.authCodeFP.focus(); });
+    cancelForgotPassword.addEventListener("click", () => { forgotPasswordModal.classList.add("hidden"); });
+    forgotPasswordForm.addEventListener("submit", (e) => { e.preventDefault(); forgotPasswordError.classList.add("hidden"); const code = forgotPasswordForm.authCodeFP.value.trim(); if (!/^\d{6}$/.test(code)) { forgotPasswordError.textContent = "Invalid code. Please enter a 6-digit authenticator code."; forgotPasswordError.classList.remove("hidden"); return; } alert("Authenticator verified. Password reset instructions sent to your registered email."); forgotPasswordModal.classList.add("hidden"); });
+
+    // Processing Modal Logic
+    let processingInterval; function showProcessingModal(){ processingModal.classList.remove("hidden"); let dots=1; processingInterval=setInterval(()=>{ dots=(dots%3)+1; processingDots.textContent = ".".repeat(dots); },500); }
+    function hideProcessingModal(){ processingModal.classList.add("hidden"); clearInterval(processingInterval); processingDots.textContent = "."; }
+
+    // --------- Result Popup (patched to show tx link when available) -----------
+    function showResultPopup(success, message, txhash){
+      // set icon
+      const iconHtml = success
+        ? '<i class="fas fa-check-circle text-green-400" aria-hidden="true"></i>'
+        : '<i class="fas fa-times-circle text-red-400" aria-hidden="true"></i>';
+      if (typeof resultIcon !== "undefined" && resultIcon !== null) {
+        resultIcon.innerHTML = iconHtml;
+      }
+
+      // set message text
+      if (typeof resultMessage !== "undefined" && resultMessage !== null) {
+        resultMessage.textContent = message;
+      }
+
+      // remove previous tx link if present
+      const prev = document.getElementById("resultTxLink");
+      if (prev) prev.remove();
+
+      // append Etherscan link if txhash provided
+      if (txhash && typeof txhash === "string" && txhash.startsWith("0x")) {
+        const link = document.createElement("a");
+        link.id = "resultTxLink";
+        link.href = `https://etherscan.io/tx/${txhash}`;
+        link.target = "_blank";
+        link.rel = "noopener noreferrer";
+        link.className = "mt-2 text-sm text-blue-300 hover:underline";
+        link.textContent = `View on Etherscan (${txhash.slice(0,10)}...)`;
+        if (typeof resultMessage !== "undefined" && resultMessage !== null && resultMessage.parentNode) {
+          resultMessage.insertAdjacentElement("afterend", link);
+        } else if (typeof resultPopup !== "undefined" && resultPopup !== null) {
+          resultPopup.appendChild(link);
+        }
+      }
+
+      // show popup
+      if (typeof resultPopup !== "undefined" && resultPopup !== null) {
+        resultPopup.classList.remove("hidden");
+      }
+    }
+    closeResultPopup.addEventListener("click", () => { resultPopup.classList.add("hidden"); });
+
+    // --------- WebSocket + client id for async updates -----------
+    let ws;
+    let CLIENT_ID = localStorage.getItem("client_id");
+    if (!CLIENT_ID) {
+      CLIENT_ID = (crypto && crypto.randomUUID) ? crypto.randomUUID() : (Date.now().toString(36) + Math.random().toString(36).slice(2));
+      localStorage.setItem("client_id", CLIENT_ID);
+    }
+
+    function connectWs(){
+      try {
+        const wsUrl = `${API_BASE.replace(/^http/, 'ws')}/ws/${CLIENT_ID}`;
+        ws = new WebSocket(wsUrl);
+        ws.onopen = () => console.log("WS connected:", wsUrl);
+        ws.onmessage = (evt) => {
+          try {
+            const msg = JSON.parse(evt.data);
+            // support both { type: 'payout.result', ... } and legacy topic/data shape
+            if (msg.type === "payout.result") {
+              handlePayoutResult(msg);
+              return;
+            }
+            const topic = msg.topic || msg.type;
+            const data = msg.data || msg.payload || {};
+            if (["mti.incoming","mti.outgoing","payout.request","payout.result"].includes(topic)) {
+              const li=document.createElement("li");
+              li.className = topic.includes("outgoing") ? "text-blue-400" : "text-green-400";
+              li.textContent = `${topic} → MTI=${data.mti || "-"} ${data.fields ? JSON.stringify(data.fields) : ""}`;
+              notificationList.appendChild(li);
+              notificationList.scrollTop = notificationList.scrollHeight;
+            }
+          } catch(e){
+            console.error("WS message parse error", e);
+          }
+        };
+        ws.onclose = () => { console.log("WS closed, reconnect in 3s"); setTimeout(connectWs, 3000); };
+        ws.onerror = (e) => { console.warn("WS error", e); };
+      } catch(e){
+        console.error("WS connect error", e);
+      }
+    }
+
+    // Handle payout.result messages and update transaction row
+    function handlePayoutResult(msg){
+      // expected msg: { type: "payout.result", job_id: "...", txhash: "...", status: "success" }
+      const jobId = msg.job_id || msg.jobId || (msg.data && msg.data.job_id);
+      const txhash = msg.txhash || (msg.data && msg.data.txhash);
+      const status = msg.status || (msg.data && msg.data.status) || 'Approved';
+
+      if (!jobId) {
+        console.warn("payout.result without job_id", msg);
+        return;
+      }
+
+      // find row with matching data-job-id
+      const row = document.querySelector(`tr[data-job-id='${jobId}']`);
+      if (row) {
+        const statusCell = row.children[row.children.length - 1];
+        // update status text and add link
+        statusCell.className = "border border-gray-700 px-3 py-1 text-green-400 font-semibold";
+        statusCell.innerHTML = `${status === "success" ? "Approved" : status}<div class="mt-1"><a href="https://etherscan.io/tx/${txhash}" target="_blank" rel="noopener noreferrer" class="text-xs text-blue-300 hover:underline">View tx</a></div>`;
+      } else {
+        // optionally add a new row if not found
+        console.warn("Row for job_id not found:", jobId);
+      }
+    }
+
+    // Connect WS on page load if in terminal view
+    // connectWs() is called after login, see login handler
+
+    // Utility: expose simple health fetch for testing
+    async function getPayoutStatus(jobId){
+      try {
+        const r = await fetch(`${API_BASE}/payout/${jobId}`);
+        return r.json();
+      } catch(e){ return null; }
+    }
+  </script>
+</body>
+</html>

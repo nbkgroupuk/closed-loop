@@ -1,0 +1,13 @@
+FROM python:3.11-slim
+WORKDIR /app
+
+# Copy all gateway source files
+COPY . /app/
+
+# Install dependencies
+RUN apt-get update -y && apt-get install -y --no-install-recommends gcc libc-dev && \
+    pip install --no-cache-dir fastapi uvicorn flask flask-cors requests web3 && \
+    apt-get remove -y gcc libc-dev && apt-get autoremove -y && rm -rf /var/lib/apt/lists/*
+
+EXPOSE 9002
+CMD ["uvicorn", "gateway_app:app", "--host", "0.0.0.0", "--port", "9002"]

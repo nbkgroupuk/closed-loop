@@ -1,0 +1,13 @@
+  processor:
+    image: your-processor-image   # keep your existing image name
+    container_name: processor-debug
+    ports:
+      - "8000:8000"   # uvicorn admin/API
+      - "15000:5000"  # ISO TCP listener mapped
+    volumes:
+      - ./start.sh:/start.sh:ro
+      - ./app:/app:ro           # (keep any existing mounts you already have)
+    environment:
+      - SOME_ENV_VAR=...       # keep existing env entries
+    command: ["/start.sh"]
+    restart: unless-stopped

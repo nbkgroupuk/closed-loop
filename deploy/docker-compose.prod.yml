@@ -1,0 +1,82 @@
+version: "3.8"
+
+services:
+  nginx:
+    image: nginx:stable-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./letsencrypt:/etc/letsencrypt         # certificates (managed by certbot)
+      - ./certbot/www:/var/www/certbot          # webroot for certbot
+    depends_on:
+      - gateway
+    networks:
+      - webnet
+
+  gateway:
+    image: project-gateway:latest
+    restart: unless-stopped
+    environment:
+      - PROCESSOR_HOST=processor
+      - PROCESSOR_PORT=9000
+      # replace with real env vars or inject from env_file or docker secrets
+      - DATABASE_URL=postgresql+asyncpg://payments:payments_pw@pg_local:5432/payments_db
+      - SOME_OTHER_ENV=your_value
+    expose:
+      - "8000"
+    networks:
+      - webnet
+      - internal
+
+  backend:
+    image: project-backend:latest
+    restart: unless-stopped
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://payments:payments_pw@pg_local:5432/payments_db
+    expose:
+      - "8000"
+    networks:
+      - internal
+
+  processor:
+    image: project-processor:latest
+    restart: unless-stopped
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://payments:payments_pw@pg_local:5432/payments_db
+    networks:
+      - internal
+
+  db:
+    image: postgres:15
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: payments
+      POSTGRES_PASSWORD: payments_pw
+      POSTGRES_DB: payments_db
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    networks:
+      - internal
+
+  certbot:
+    image: certbot/certbot
+    entrypoint: /bin/sh -c
+    command: "sleep infinity"   # run manually to request/renew certs
+    volumes:
+      - ./letsencrypt:/etc/letsencrypt
+      - ./certbot/www:/var/www/certbot
+    networks:
+      - webnet
+
+volumes:
+  db-data:
+  letsencrypt:
+  certbot-www:
+
+networks:
+  webnet:
+    driver: bridge
+  internal:
+    driver: bridge

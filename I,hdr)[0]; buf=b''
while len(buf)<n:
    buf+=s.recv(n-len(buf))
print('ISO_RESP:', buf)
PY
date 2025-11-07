@@ -1,0 +1,4 @@
+  File "<stdin>", line 6
+    frame = struct.pack(
+                       ^
+SyntaxError: '(' was never closed

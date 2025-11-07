@@ -1,0 +1,41 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Backend Dashboard</title>
+  <style> /* minimal styles or link your CSS in static/ */ </style>
+</head>
+<body>
+  <h1>Backend Dashboard</h1>
+  <p>Now: {{ now }}</p>
+  <h2>Transactions</h2>
+  <table border="1" cellpadding="6">
+    <tr><th>ID</th><th>Amount</th><th>Currency</th><th>Status</th><th>Approved</th><th>created_at</th></tr>
+    {% for t in txns %}
+    <tr>
+      <td>{{ t.id }}</td>
+      <td>{{ t.amount }}</td>
+      <td>{{ t.currency }}</td>
+      <td>{{ t.status }}</td>
+      <td>{{ t.approved }}</td>
+      <td>{{ t.created_at }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+
+  <h2>Payouts</h2>
+  <table border="1" cellpadding="6">
+    <tr><th>ID</th><th>Type</th><th>Amount</th><th>Currency</th><th>Status</th><th>created_at</th></tr>
+    {% for p in payouts %}
+    <tr>
+      <td>{{ p.id }}</td>
+      <td>{{ p.type }}</td>
+      <td>{{ p.amount }}</td>
+      <td>{{ p.currency }}</td>
+      <td>{{ p.status }}</td>
+      <td>{{ p.created_at }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+</body>
+</html>

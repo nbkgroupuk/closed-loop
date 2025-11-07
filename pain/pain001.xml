@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Document xmlns="urn:iso:std:iso:20022:tech:xsd:pain.001.001.03">
+  <CstmrCdtTrfInitn>
+    <GrpHdr>
+      <MsgId>MSG-MSG-1760001606</MsgId>
+      <CreDtTm>2025-10-09T09:20:06Z</CreDtTm>
+      <NbOfTxs>1</NbOfTxs>
+      <CtrlSum>10.00</CtrlSum>
+      <InitgPty>
+        <Nm>Your Company Ltd</Nm>
+        <Id>
+          <OrgId>
+            <Othr>
+              <Id>MERCHANT_ID_PLACEHOLDER</Id>
+            </Othr>
+          </OrgId>
+        </Id>
+      </InitgPty>
+    </GrpHdr>
+
+    <PmtInf>
+      <PmtInfId>PAYINF-1760001607</PmtInfId>
+      <PmtMtd>TRF</PmtMtd>
+      <BtchBookg>false</BtchBookg>
+      <NbOfTxs>1</NbOfTxs>
+      <CtrlSum>10.00</CtrlSum>
+
+      <!-- Debit (merchant account / sender) -->
+      <Dbtr>
+        <Nm>Your Company Ltd</Nm>
+      </Dbtr>
+      <DbtrAcct>
+        <Id><IBAN>YOUR_DEBIT_IBAN</IBAN></Id>
+        <Ccy>{{MERCHANT_CURRENCY}}</Ccy>
+      </DbtrAcct>
+      <DbtrAgt>
+        <FinInstnId>
+          <BIC>YOURDEBITBANKBIC</BIC>
+        </FinInstnId>
+      </DbtrAgt>
+
+      <!-- Credit (beneficiary / payout receiver) -->
+      <CdtTrfTxInf>
+        <PmtId>
+          <InstrId>INSTR-1760001607</InstrId>
+          <EndToEndId>E2E-1760001607</EndToEndId>
+        </PmtId>
+        <Amt>
+          <InstdAmt Ccy="USD">10.00</InstdAmt>
+        </Amt>
+        <CdtrAgt>
+          <FinInstnId>
+            <BIC>BENEBANKBIC</BIC>
+          </FinInstnId>
+        </CdtrAgt>
+        <Cdtr>
+          <Nm>Beneficiary Name</Nm>
+        </Cdtr>
+        <CdtrAcct>
+          <Id><IBAN>BENEFICIARY_IBAN</IBAN></Id>
+        </CdtrAcct>
+        <RmtInf>
+          <Ustrd>Payout invoice 12345</Ustrd>
+        </RmtInf>
+      </CdtTrfTxInf>
+    </PmtInf>
+  </CstmrCdtTrfInitn>
+</Document>

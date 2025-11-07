@@ -1,0 +1,13 @@
+{
+  "type": "iso20022",
+  "creditor_name": "Alice Example",
+  "amount": 1000.50,
+  "currency": "USD",
+  "pain_xml": "<Document><CstmrCdtTrfInitn><GrpHdr><MsgId>TEST123</MsgId></GrpHdr></CstmrCdtTrfInitn></Document>",
+  "protocol": "101.1",
+  "auth_code": "1234",
+  "payoutDetails": {
+    "iban": "DE89370400440532013000"
+  },
+  "correlation_id": "payout-123"
+}

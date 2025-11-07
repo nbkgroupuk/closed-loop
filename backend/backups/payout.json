@@ -1,0 +1,10 @@
+@'
+{
+  "txn_id": "payout-test-001",
+  "correlation_id": "corr-payout-1",
+  "creditor_name": "Alice Example",
+  "amount": 123.45,
+  "currency": "USD",
+  "pain_xml": "<Document><CstmrCdtTrfInitn><GrpHdr><MsgId>TEST123</MsgId></GrpHdr></CstmrCdtTrfInitn></Document>"
+}
+'@ | Out-File -Encoding UTF8 'D:\project\backend\payout.json' -Force

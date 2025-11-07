@@ -1,0 +1,11 @@
+﻿{
+  "txn_id": "550e8400-e29b-41d4-a716-446655440000",
+  "pan": "TEST_PAN_REDACTED",
+  "expiry": "12/29",
+  "cvc": "123",
+  "amount": "100.00",
+  "currency": "INR",
+  "protocol": "POS Terminal -101.1 (4-digit approval)",
+  "authCode": "1234",
+  "correlation_id": "corr-1"
+}

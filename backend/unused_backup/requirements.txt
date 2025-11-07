@@ -1,0 +1,22 @@
+fastapi==0.95.2
+uvicorn[standard]==0.22.0
+SQLAlchemy==1.4.49
+asyncpg==0.30.0
+httpx==0.24.1
+psycopg2-binary==2.9.7
+alembic==1.12.0
+pydantic==1.10.12
+web3==6.0.0
+lxml==4.9.3
+pyjwt==2.8.0
+passlib[bcrypt]==1.7.4
+pyotp==2.8.0
+prometheus_client==0.16.0
+python-json-logger==2.0.4
+Dockerfile
+sqlalchemy[asyncio]
+jinja2
+aiosqlite
+python-json-logger
+ 
+ 

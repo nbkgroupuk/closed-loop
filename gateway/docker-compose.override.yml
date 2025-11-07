@@ -1,0 +1,4 @@
+services:
+  gateway:
+    env_file:
+      - ./gateway/.env

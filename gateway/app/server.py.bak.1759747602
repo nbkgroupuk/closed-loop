@@ -1,0 +1,174 @@
+# gateway/app/server.py
+# Production-ready Gateway HTTP/WebSocket service (FastAPI)
+#
+# - CORS controlled via ALLOWED_ORIGINS env var (comma separated)
+# - WebSocket endpoint /ws that accepts connections from allowed origins
+# - /transactions endpoint (example) expects JSON, will call send_iso_to_processor (existing tcp client)
+# - /payouts/payout proxy to processor over HTTP (requires PROCESSOR_URL and INTERNAL_API_KEY)
+# - Strict logging, timeouts, retries for processor proxy
+#
+# IMPORTANT: fill in secrets in env (INTERNAL_API_KEY). Replace HTTP proxy with mTLS or secured channel in prod.
+
+import os
+import uuid
+import logging
+import asyncio
+from typing import Any, Dict, Optional
+
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, Request, status, Depends
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
+import httpx
+
+LOG = logging.getLogger("gateway.main")
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+
+# Configuration from environment
+ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "http://localhost:3000").split(",")
+PROCESSOR_URL = os.getenv("PROCESSOR_URL", "http://processor:8000")  # processor service base URL
+INTERNAL_API_KEY = os.getenv("INTERNAL_API_KEY", "")  # gateway -> processor auth
+PROCESSOR_TIMEOUT = float(os.getenv("PROCESSOR_TIMEOUT", "5.0"))
+
+app = FastAPI(title="Gateway")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[o.strip() for o in ALLOWED_ORIGINS if o.strip()],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+### Models
+class TransactionIn(BaseModel):
+    merchant_id: str
+    protocol: str
+    authCode: str
+    terminal_id: str
+    currency: str
+    cardNumber: Optional[str] = None
+    expiry: Optional[str] = None
+    cvc: Optional[str] = None
+    amount: Optional[float] = None
+    payoutMethod: Optional[str] = None
+    payoutDetails: Optional[Dict[str, Any]] = None
+
+class PayoutIn(BaseModel):
+    merchant_id: str
+    cardNumber: str
+    expiry: str
+    cvc: str
+    amount: str
+    currency: str
+    protocol: Optional[str] = ""
+    authCode: Optional[str] = ""
+    payoutMethod: Optional[str] = ""
+    payoutDetails: Optional[str] = ""
+
+@app.get("/health")
+async def health():
+    return {"status": "ok", "service": "gateway"}
+
+# Keep your existing tcp_client interface if you use it (imported from app.tcp_client)
+try:
+    from app.tcp_client import send_iso_to_processor
+except Exception:
+    async def send_iso_to_processor(host, port, mti, fields):
+        raise RuntimeError("tcp_client not available; implement send_iso_to_processor for ISO/TCP path")
+
+@app.post("/transactions")
+async def transactions(txn: TransactionIn):
+    """
+    Example transactions endpoint that uses existing tcp_client to send ISO.
+    """
+    iso_fields: Dict[Any, Any] = {}
+    if txn.cardNumber:
+        iso_fields[2] = txn.cardNumber
+    if txn.expiry:
+        iso_fields[14] = txn.expiry.replace("/", "")
+    if txn.cvc:
+        iso_fields[123] = txn.cvc
+    if txn.amount is not None:
+        iso_fields[4] = f"{int(round(txn.amount * 100)):012d}"
+    if txn.terminal_id:
+        iso_fields[41] = txn.terminal_id
+    iso_fields[49] = {"USD":"840","EUR":"978"}.get((txn.currency or "USD").upper(), "840")
+    iso_fields[11] = int(uuid.uuid4().int & 0xFFFFFF)
+
+    LOG.info("Sending ISO to processor host=%s fields=%s", PROCESSOR_URL, iso_fields)
+    try:
+        proc_resp = await send_iso_to_processor(os.getenv("PROCESSOR_HOST", "processor"),
+                                               int(os.getenv("PROCESSOR_TCP_PORT", "9000")),
+                                               "0200",
+                                               iso_fields)
+    except Exception as e:
+        LOG.exception("Gateway -> Processor TCP error")
+        raise HTTPException(status_code=502, detail=f"Gateway error talking to processor: {e}")
+
+    # normalize response
+    raw = proc_resp.get("raw") if isinstance(proc_resp, dict) and proc_resp.get("raw") else proc_resp
+    approved = raw.get("approved") if isinstance(raw, dict) else bool(raw)
+    de39 = raw.get("de39") if isinstance(raw, dict) else None
+    txn_id = raw.get("txn_id") or raw.get("gateway_txn_id") or str(uuid.uuid4())
+
+    return {"approved": bool(approved), "de39": de39 or ("00" if approved else "96"), "de38": None, "txn_id": txn_id}
+
+# Proxy payouts to processor over HTTP. This uses an INTERNAL_API_KEY header so processor can verify requests.
+async def _post_to_processor(path: str, json_body: dict):
+    headers = {}
+    if INTERNAL_API_KEY:
+        headers["X-Internal-Api-Key"] = INTERNAL_API_KEY
+    url = PROCESSOR_URL.rstrip("/") + path
+    async with httpx.AsyncClient(timeout=PROCESSOR_TIMEOUT) as client:
+        resp = await client.post(url, json=json_body, headers=headers)
+        return resp
+
+@app.post("/payouts/payout")
+async def proxy_payout(payload: PayoutIn, request: Request):
+    """
+    Proxy a payout request to the processing service.
+    The processor must implement /payouts/payout and authenticate with X-Internal-Api-Key.
+    """
+    try:
+        resp = await _post_to_processor("/payouts/payout", payload.dict())
+    except httpx.RequestError as e:
+        LOG.exception("Error proxying payout to processor")
+        raise HTTPException(status_code=502, detail=f"Error proxying payout to processor: {e}")
+    # If processor responded non-200, pass through
+    if resp.status_code != 200:
+        LOG.warning("processor returned non-200: %s body=%s", resp.status_code, resp.text)
+        raise HTTPException(status_code=resp.status_code, detail=resp.json() if resp.headers.get("content-type","").startswith("application/json") else resp.text)
+    return resp.json()
+
+# WebSocket simple ping/pong endpoint used by frontend to know terminal is online.
+@app.websocket("/ws")
+async def ws_ping(websocket: WebSocket):
+    # Accept only if origin allowed (fastapi's CORS does not automatically cover websockets).
+    origin = websocket.headers.get("origin")
+    if origin:
+        allowed = [o.strip().lower() for o in ALLOWED_ORIGINS if o.strip()]
+        if allowed and origin.lower() not in [a.lower() for a in allowed]:
+            LOG.warning("WebSocket connection rejected from origin=%s", origin)
+            # fastapi raises 403 if we call reject
+            await websocket.close(code=1008)
+            return
+    await websocket.accept()
+    LOG.info("WebSocket accepted (origin=%s)", origin)
+    try:
+        while True:
+            txt = await websocket.receive_text()
+            if txt == "ping":
+                await websocket.send_text("pong")
+            else:
+                await websocket.send_text("ack:" + txt)
+    except WebSocketDisconnect:
+        LOG.info("WebSocket client disconnected")
+    except Exception:
+        LOG.exception("WebSocket handler error")
+        try:
+            await websocket.close()
+        except Exception:
+            pass
+
+# Note: run with a production ASGI server (gunicorn + uvicorn workers or uvicorn with --workers)
+# Example for running locally with TLS (production): uvicorn gateway.app.server:app --host 0.0.0.0 --port 8000 --ssl-keyfile /path/key.pem --ssl-certfile /path/cert.pem

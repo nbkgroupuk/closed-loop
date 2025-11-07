@@ -1,0 +1,102 @@
+*** Begin Patch
+*** Update File: gateway/app/server.py
+@@
+-from starlette.middleware.base import BaseHTTPMiddleware
+-class PrometheusMiddleware(BaseHTTPMiddleware):
+-    async def dispatch(self, request, call_next):
+-        endpoint = request.url.path
+-        method = request.method
+-        start = time.time()
+-        try:
+-            resp = await call_next(request)
+-            status = resp.status_code
+-            # observe duration
+-            if monitoring:
+-                dur = time.time() - start
+-                try:
+-                    monitoring.DURATION.labels(method=method, endpoint=endpoint).observe(dur)
+-                    monitoring.REQUESTS.labels(method=method, endpoint=endpoint, status=str(status)).inc()
+-                    if status >= 400:
+-                        monitoring.FAILURES.labels(endpoint=endpoint).inc()
+-                except Exception:
+-                    pass
+-            return resp
+-        except Exception as e:
+-            if monitoring:
+-                try:
+-                    monitoring.FAILURES.labels(endpoint=endpoint).inc()
+-                    monitoring.REQUESTS.labels(method=method, endpoint=endpoint, status="500").inc()
+-                except Exception:
+-                    pass
+-            raise
+-
+-# Attach middleware if app variable exists
+-try:
+-    app.add_middleware(PrometheusMiddleware)
+-except Exception:
+-    pass
+-# --- end instrumentation insertion ---
+-
+-
+-# register monitoring endpoints (metrics)
+-try:
+-    from app import monitoring
+-    app.include_router(monitoring.router, prefix="")
+-except Exception:
+-    pass
++from starlette.middleware.base import BaseHTTPMiddleware
++
++# Import monitoring module defensively. If import fails, monitoring will be None and middleware will
++# behave as a no-op (metrics won't be emitted but app remains functional).
++try:
++    from app import monitoring
++except Exception:
++    monitoring = None
++
++
++class PrometheusMiddleware(BaseHTTPMiddleware):
++    async def dispatch(self, request, call_next):
++        """
++        Measure request duration and record metrics via app.monitoring.observe_request().
++        This middleware is defensive and must never let metric errors bubble up.
++        """
++        endpoint = request.url.path
++        method = request.method
++        start = time.time()
++        try:
++            resp = await call_next(request)
++            status = getattr(resp, "status_code", 200)
++            duration = time.time() - start
++            # best-effort metric observation; observe_request will swallow exceptions
++            try:
++                if monitoring and hasattr(monitoring, "observe_request"):
++                    monitoring.observe_request(method=method, endpoint=endpoint, status=status, duration=duration, failed=(status >= 400))
++            except Exception:
++                # absolutely do not raise from middleware due to metrics issues
++                logging.getLogger("gateway.metrics").debug("metric observe failed", exc_info=True)
++            return resp
++        except Exception:
++            # record failure (best-effort) and re-raise so upper middleware/exception handlers run
++            try:
++                if monitoring and hasattr(monitoring, "observe_request"):
++                    monitoring.observe_request(method=method, endpoint=endpoint, status=500, duration=(time.time() - start), failed=True)
++            except Exception:
++                logging.getLogger("gateway.metrics").debug("metric observe on exception failed", exc_info=True)
++            raise
++
++
++# Attach middleware (wrap in try to be extra-safe)
++try:
++    app.add_middleware(PrometheusMiddleware)
++except Exception:
++    logging.getLogger("gateway.server").exception("Failed to attach PrometheusMiddleware (continuing without it)")
++
++
++# Register monitoring endpoints (if available). Using include_router keeps server.py minimal.
++if monitoring and hasattr(monitoring, "router"):
++    try:
++        app.include_router(monitoring.router)
++    except Exception:
++        logging.getLogger("gateway.server").exception("Failed to include monitoring.router (skipping)")
+*** End Patch
+

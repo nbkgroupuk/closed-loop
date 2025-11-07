@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Document xmlns="urn:iso:std:iso:20022:tech:xsd:pain.002.001.09">
+  <CstmrPmtStsRpt>
+    <GrpHdr>
+      <MsgId>MSG-MSG-1760001606</MsgId>
+      <CreDtTm>2025-10-09T09:20:07</CreDtTm>
+    </GrpHdr>
+    <OrgnlGrpInfAndSts>
+      <OrgnlMsgId>MSG-MSG-1760001606</OrgnlMsgId>
+      <GrpSts>ACCP</GrpSts>
+    </OrgnlGrpInfAndSts>
+  </CstmrPmtStsRpt>
+</Document>

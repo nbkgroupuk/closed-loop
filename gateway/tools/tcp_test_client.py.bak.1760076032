@@ -1,0 +1,73 @@
+#!/usr/bin/env python3
+"""
+Production-ready TCP ISO8583 test client
+----------------------------------------
+
+✅ Uses 4-byte big-endian framing
+✅ Connects directly to your processor TCP listener (default 9000)
+✅ Sends MTI 0800 with basic test fields
+✅ Logs full request/response including DE39
+"""
+
+import socket
+import struct
+import json
+import time
+
+#PROCESSOR_HOST = "processor"
+#PROCESSOR_HOST = "project-processor"
+PROCESSOR_HOST = "host.docker.internal"   # or "localhost" if running outside Docker network
+PROCESSOR_PORT = 9000
+TIMEOUT = 5.0
+
+def build_iso_message():
+    """Builds a minimal test ISO8583 payload"""
+    msg = {
+        "mti": "0800",                # Network management request
+        "DE2": "TEST_PAN_REDACTED",    # PAN
+        "DE3": "000000",              # Processing code
+        "DE7": time.strftime("%m%d%H%M%S"),  # Transmission datetime
+        "DE11": "000001",             # STAN
+        "DE12": time.strftime("%H%M%S"),
+        "DE13": time.strftime("%m%d"),
+        "DE41": "TERMID01",
+        "DE49": "840"                 # Currency (USD)
+    }
+    return msg
+
+def send_iso_message(host, port, payload):
+    """Send framed JSON ISO message and return response"""
+    data = json.dumps(payload).encode()
+    frame = struct.pack(">I", len(data)) + data
+
+    with socket.create_connection((host, port), timeout=TIMEOUT) as sock:
+        print(f"→ Connected to {host}:{port}")
+        sock.sendall(frame)
+        print(f"→ Sent {len(frame)} bytes")
+
+        hdr = sock.recv(4)
+        if len(hdr) < 4:
+            raise ConnectionError("Incomplete response header")
+        (length,) = struct.unpack(">I", hdr)
+        body = sock.recv(length)
+        print(f"← Received {len(body)} bytes")
+
+        try:
+            resp = json.loads(body.decode())
+        except Exception:
+            resp = {"raw": body.decode(errors="replace")}
+        return resp
+
+def main():
+    iso = build_iso_message()
+    print("Sending ISO8583 message:\n", json.dumps(iso, indent=2))
+    resp = send_iso_message(PROCESSOR_HOST, PROCESSOR_PORT, iso)
+    print("\nResponse:")
+    print(json.dumps(resp, indent=2))
+    if "DE39" in resp:
+        print(f"\n✅ Authorization Response Code (DE39): {resp['DE39']}")
+    else:
+        print("\n⚠️  No DE39 field in response")
+
+if __name__ == "__main__":
+    main()

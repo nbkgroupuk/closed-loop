@@ -1,0 +1,9 @@
+FROM python:3.11-slim
+WORKDIR /app
+COPY processor/ /app/
+RUN apt-get update && apt-get install -y gcc libpq-dev && \
+    python -m pip install --no-cache-dir --upgrade pip setuptools wheel && \
+    python -m pip install --no-cache-dir asyncpg psycopg2-binary fastapi uvicorn sqlalchemy && \
+    if [ -f requirements.txt ]; then pip install --no-cache-dir -r requirements.txt || true; fi && \
+    apt-get remove -y gcc && apt-get autoremove -y && apt-get clean
+CMD ["uvicorn", "app.server:app", "--host", "0.0.0.0", "--port", "8000"]
