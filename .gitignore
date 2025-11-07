@@ -1,2 +1,47 @@
+# --- Python / build ---
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# --- Backups / temp you listed ---
+*.bak
+*.bak.*
+*.tmp
+tmp/
+unused_backup/
+nohup.out
+
+# --- Captures / logs / extras workspace ---
+*.pcap
+*.log
+extras/
+
+# --- Local data / dumps ---
+backups/
+postgres-data/
+*.dump
+payments_db_*.dump
+settlements.db
+
+# --- Env & secrets (keep out of git) ---
+.env
+.env.*
+prod.env
 secrets/
-secrets/
+deploy/letsencrypt/
+
+# --- Docker noisy backups / old files ---
+docker-compose*.yml.bak
+docker-compose.*.bak
+*prod-old*.yml
+
+# --- Node/static caches (if any) ---
+frontend/node_modules/
+frontend/.cache/
+
+# --- OS/Editor ---
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
