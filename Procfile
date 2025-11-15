@@ -1,1 +1,1 @@
-web: ./start.sh
+web: ./gateway/start.sh
