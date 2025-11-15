@@ -1,8 +1,9 @@
 # gateway/app/server.py
 # server.py  -- simplified gateway server that builds consistent DE fields
 # gateway/app/server.py
-from fastapi import FastAPI, Request
+from fastapi import FastAPI
 from fastapi.responses import JSONResponse
+from fastapi import FastAPI, Request
 import logging, re, os
 from app.tcp_client import send_iso_to_processor as tcp_send_iso_to_processor
 
@@ -10,9 +11,17 @@ app = FastAPI(title="Payment Gateway API")
 LOG = logging.getLogger("gateway.server")
 LOG.setLevel(logging.INFO)
 
-@app.get("/healthz")
-async def healthz():
-    return {"status": "ok", "service": "gateway"}
+# gateway/app/server.py (add near the top where `app` is created)
+
+app = FastAPI(title="Payment Gateway API")
+
+@app.get("/health", include_in_schema=False)
+async def health():
+    return JSONResponse({"status": "ok", "service": "gateway"})
+
+#@app.get("/healthz")
+#async def healthz():
+#   return {"status": "ok", "service": "gateway"}
 
 @app.get("/ui-config")
 async def ui_config():
@@ -92,3 +101,7 @@ async def process_transaction(request: Request):
 
     return JSONResponse(resp)
     
+
+@app.get("/health")
+def health():
+    return {"status":"ok","service":"gateway"}
