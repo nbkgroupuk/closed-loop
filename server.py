@@ -1,4 +1,4 @@
-# gateway/app/server.py
+# project/server.py
 """
 FastAPI Gateway Server
 Receives frontend transactions and forwards ISO8583-style requests to the processor.

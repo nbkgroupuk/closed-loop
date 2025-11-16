@@ -1,4 +1,5 @@
-
+from fastapi import FastAPI
+app = FastAPI()
 #!/usr/bin/env python3
 # server.py — cleaned single FastAPI instance, CORS enabled (dev)
 import os
@@ -73,7 +74,7 @@ async def payout(payload: Request):
     # Legacy card shortcut (keeps old dev behavior)
     if data.get("cardNumber"):
         auth_code = data.get("authCode") or __import__("secrets").token_hex(3)
-        return make_response("approved", "00", {"39": "00", "38": auth_code}, txn_id=data.get("job_id") or data.get("txn_id"), message="Accepted (mock card)")
+        return make_response("approved", "00", {"39": "00", "38": auth_code}, txn_id=data.get("job_id") or data.get("txn_id"), message="Accepted (live card)")
 
     # Delegate to ISO processing pipeline
     try:

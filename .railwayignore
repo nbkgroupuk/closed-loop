@@ -1,0 +1,8 @@
+crypto-payout/
+processor/
+frontend/
+deploy/
+docker-compose.yml
+docker-compose.prod.yml
+tmp_gateway_files/
+db_backups/

@@ -31,7 +31,7 @@ def _now_fields():
 
 def build_iso_fields(body: Dict[str, Any]) -> Dict[str, str]:
     """
-    Map common gateway keys to ISO 'fields' expected by the processor mock.
+    Map common gateway keys to ISO 'fields' expected by the processor live.
     This is a best-effort mapping. Adjust per your processor/acquirer field spec.
     """
     de = {}

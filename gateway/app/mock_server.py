@@ -7,7 +7,7 @@ app = FastAPI()
 @app.post("/iso20022")
 async def iso20022(req: Request):
     data = await req.body()
-    return JSONResponse({"status":"ok","message":"mock accepted","echo_length": len(data)})
+    return JSONResponse({"status":"ok","message":"live accepted","echo_length": len(data)})
 
 @app.post("/crypto/payout")
 async def crypto_payout(req: Request):

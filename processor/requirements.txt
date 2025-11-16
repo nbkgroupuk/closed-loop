@@ -8,3 +8,5 @@ aiosqlite
 python-json-logger
 asyncpg
 requests
+web3==6.19.0
+

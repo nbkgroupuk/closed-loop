@@ -7,3 +7,6 @@ xmlschema==3.4.2
 Dockerfile
 pydantic==1.10.13
 prometheus-client==0.17.0
+httpx
+httpx
+web3

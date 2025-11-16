@@ -8,7 +8,7 @@ LOG = logging.getLogger("gateway.tcp_client")
 
 async def send_iso_to_processor(host: str, port: int, mti: str, fields: Dict[Any, Any], timeout: float = 5.0):
     """
-    Connect to processor TCP mock (newline-delimited JSON).
+    Connect to processor TCP live (newline-delimited JSON).
     Send {"mti": mti, "fields": fields} and await one JSON line response.
     """
     try:

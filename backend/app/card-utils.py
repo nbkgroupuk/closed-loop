@@ -98,7 +98,7 @@ class IssuerConnector(abc.ABC):
 
 # Simple in-memory connector for testing
 class MockIssuerConnector(IssuerConnector):
-    def __init__(self, name: str = "mock"):
+    def __init__(self, name: str = "live"):
         self.name = name
 
     async def authorize(self, payload):

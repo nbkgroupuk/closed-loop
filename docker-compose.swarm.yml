@@ -1,0 +1,63 @@
+version: '3.8'
+
+services:
+  db:
+    image: postgres:15
+    environment:
+      POSTGRES_DB: projectdb
+      POSTGRES_USER: projectuser
+      POSTGRES_PASSWORD: projectpass
+    volumes:
+      - db_data:/var/lib/postgresql/data
+
+  processor:
+    image: project-processor:latest
+    ports:
+      - "9000:9000"
+    environment:
+      - TZ=UTC
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+
+  crypto-payout:
+    image: crypto-payout:latest
+    ports:
+      - "9001:9001"
+    secrets:
+      - wallet_private_key
+    environment:
+      - TZ=UTC
+      - WALLET_KEY_FILE=/run/secrets/wallet_private_key
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+
+  gateway:
+    image: project-gateway:latest
+    ports:
+      - "9002:9002"
+    environment:
+      - PROCESSOR_URL=http://processor:9000/payout
+      - CRYPTO_PAYOUT_URL=http://crypto-payout:9001/payout
+      - ISO20022_API_KEY_FILE=/run/secrets/iso20022_api_key
+    secrets:
+      - iso20022_api_key
+    depends_on:
+      - processor
+      - crypto-payout
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+
+volumes:
+  db_data:
+
+secrets:
+  wallet_private_key:
+    external: true
+  iso20022_api_key:
+    external: true

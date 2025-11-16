@@ -1,4 +1,4 @@
-# gateway/app/server.py
+# project/app/server.py
 import os
 import logging
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request

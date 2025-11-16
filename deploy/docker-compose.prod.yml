@@ -17,6 +17,8 @@ services:
 
   gateway:
     image: project-gateway:latest
+    env_file:
+      - .env
     restart: unless-stopped
     environment:
       - PROCESSOR_HOST=processor

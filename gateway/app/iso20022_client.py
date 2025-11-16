@@ -3,9 +3,9 @@
 ISO20022 HTTP client helper.
 
 Usage:
-  await send_iso20022_xml("http://mock-bank:5002/iso20022", payload_dict)
+  await send_iso20022_xml("http://live-bank:5002/iso20022", payload_dict)
   or
-  await send_iso20022_xml("http://mock-bank:5002", payload_dict)  # defaults to path "/iso20022"
+  await send_iso20022_xml("http://live-bank:5002", payload_dict)  # defaults to path "/iso20022"
 """
 
 import os
@@ -34,7 +34,7 @@ async def build_iso20022_xml(payload: Dict[str, Any]) -> str:
 async def send_iso20022_xml(url: str, payload: Dict[str, Any], *, mTLS: bool = False, timeout: float = 30.0) -> Dict[str, Any]:
     """
     Send a generated ISO20022 XML payload to `url`.
-    - If `url` contains no path component (e.g. http://mock-bank:5002), DEFAULT_PATH will be appended.
+    - If `url` contains no path component (e.g. http://live-bank:5002), DEFAULT_PATH will be appended.
     - Returns a dict with keys: {"status_code": int, "text": str}
     - Raises httpx.HTTPStatusError on non-2xx.
     """

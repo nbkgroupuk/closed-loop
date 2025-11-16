@@ -12,3 +12,20 @@ async def health():
         return {"status": "ok", "service": "gateway"}
     except Exception as e:
         return {"status": "error", "service": "gateway", "detail": str(e)}
+
+from fastapi import Request
+
+@app.post("/payout")
+async def payout(request: Request):
+    """Simple /payout mock endpoint for gateway testing."""
+    try:
+        data = await request.json()
+    except Exception:
+        return {"error": "invalid json"}
+    return {
+        "status": "queued",
+        "amount": data.get("amount"),
+        "currency": data.get("currency", "USD"),
+        "merchant_id": data.get("merchant_id"),
+        "tx": "mock-tx-001"
+    }

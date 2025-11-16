@@ -1,0 +1,10 @@
+tunnel: 82e04be3-5284-4d2c-8dd9-130dde574714
+credentials-file: /etc/cloudflared/82e04be3-5284-4d2c-8dd9-130dde574714.json
+
+ingress:
+  - hostname: rutlandprojects.com
+    service: http://deploy-nginx-1:80
+  - hostname: www.rutlandprojects.com
+    service: http://deploy-nginx-1:80
+  # catch-all: any other host -> your origin (prevents https://localhost:443 502s)
+  - service: http://deploy-nginx-1:80
