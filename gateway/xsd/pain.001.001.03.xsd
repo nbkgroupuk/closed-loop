@@ -1,6 +1,0 @@
-<?xml version='1.0' encoding='utf-8'?>
-<xs:schema xmlns:xs='http://www.w3.org/2001/XMLSchema'
-  targetNamespace='urn:iso:std:iso:20022:tech:xsd:pain.001.001.03'
-  xmlns='urn:iso:std:iso:20022:tech:xsd:pain.001.001.03' elementFormDefault='qualified'>
-  <xs:element name='Document' type='xs:anyType'/>
-</xs:schema>

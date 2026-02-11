@@ -1,7 +1,0 @@
-{
-  "creditor_name": "Alice Johnson",
-  "amount": 250.75,
-  "currency": "USD",
-  "pain_xml": "<Document><CstmrCdtTrfInitn><GrpHdr><MsgId>payout-001</MsgId></GrpHdr></CstmrCdtTrfInitn></Document>",
-  "correlation_id": "payout-corr-1"
-}

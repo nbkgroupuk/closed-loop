@@ -1,5 +1,0 @@
-fastapi
-uvicorn
-web3>=6.0.0
-eth-account
-prometheus-client==0.
