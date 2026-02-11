@@ -45,3 +45,8 @@ frontend/.cache/
 Thumbs.db
 .vscode/
 .idea/
+
+# .env ignore
+.env
+backend/.env
+
