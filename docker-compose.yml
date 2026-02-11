@@ -1,0 +1,159 @@
+version: "3.8"
+
+services:
+
+  pg_local:
+    image: postgres:15
+    container_name: project-pg_local
+    env_file:
+      - ./backend/.env
+    environment:
+      POSTGRES_DB: payments_db
+      POSTGRES_USER: payments
+      POSTGRES_PASSWORD: payments_pw
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U payments -d payments_db || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: project-backend
+    env_file:
+      - ./backend/.env
+    environment:
+      ENV: local
+      STRIPE_ENABLED: "true"
+      STRIPE_MODE: "test"
+      STRIPE_SECRET_KEY: sk_tes
+      STRIPE_WEBHOOK_SECRET: whsec_
+      JWT_SECRET: dev_jwt_secret_change_later
+      WS_SECRET: dev_ws_secret_change_later
+      DATABASE_URL: postgresql+asyncpg://payments:payments_pw@pg_local:5432/payments_db
+      CRYPTO_MERCHANT_WALLET: 0xf2716f15fea5133a38b3f2f602db37c683fe2e3e
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+    ports:
+      - "8002:8000"
+    depends_on:
+      pg_local:
+        condition: service_healthy
+    restart: unless-stopped
+
+  processor:
+    build:
+      context: ./processor
+      dockerfile: Dockerfile
+    container_name: project-processor
+    env_file:
+      - ./backend/.env
+    environment:
+      PYTHONPATH: /app
+      FORCE_APPROVE_MODE: "true"
+      DATABASE_URL: postgresql+asyncpg://payments:payments_pw@pg_local:5432/payments_db
+    # ✅ FIXED: correct uvicorn import target
+    command: ["uvicorn", "app.server:app", "--host", "0.0.0.0", "--port", "8000"]
+    depends_on:
+      pg_local:
+        condition: service_healthy
+    restart: unless-stopped
+
+  gateway:
+    build:
+      context: ./gateway
+    container_name: project-gateway
+    env_file:
+      - ./backend/.env
+    environment:
+      PYTHONPATH: /app
+      PROCESSOR_HOST: processor
+      PROCESSOR_PORT: "8000"
+    command: ["uvicorn", "gateway_app:app", "--host", "0.0.0.0", "--port", "8000"]
+    ports:
+      - "8003:8000"
+    depends_on:
+      backend:
+        condition: service_started
+      processor:
+        condition: service_started
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: project-frontend
+    ports:
+      - "3000:80"
+    depends_on:
+      gateway:
+        condition: service_started
+    restart: unless-stopped
+
+  crypto-worker:
+    image: project-crypto-worker
+    container_name: project-crypto-worker
+    environment:
+      DATABASE_URL: postgresql+asyncpg://payments:payments_pw@pg_local:5432/payments_db
+    command: python -m app.workers.crypto_payout_worker
+    depends_on:
+      pg_local:
+        condition: service_healthy
+    restart: unless-stopped
+
+  crypto-payout:
+    build:
+      context: ./crypto-payout
+      dockerfile: Dockerfile
+    container_name: project-crypto-payout
+    env_file:
+      - ./backend/.env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://payments:payments_pw@pg_local:5432/payments_db
+    depends_on:
+      backend:
+        condition: service_started
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+      - ./prometheus/alert.rules.yml:/etc/prometheus/alert.rules.yml
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+    ports:
+      - "9090:9090"
+
+  nginx:
+    image: nginx:1.29
+    container_name: project-nginx
+    ports:
+      - "8091:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf
+    depends_on:
+      - frontend
+      - backend
+      - gateway
+    restart: unless-stopped
+  outbox-worker:
+    build: ./backend
+    command: python -m app.workers.outbox_processor
+    environment:
+      DATABASE_URL: postgresql+asyncpg://payments:payments_pw@pg_local:5432/payments_db
+    depends_on:
+      - pg_local
+    restart: always
+
+volumes:
+  pgdata:
+
