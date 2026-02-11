@@ -1,9 +1,11 @@
-# gateway/app/server.py
+# crypto-payout/app/server.py
 import os
 import logging
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi import HTTPException
+from app.send_crypto_signonly import prepare_and_send_tx
 
 import time
 log = logging.getLogger("gateway.server")
@@ -14,11 +16,31 @@ ALLOWED_ORIGINS = ["http://localhost:3000", "http://127.0.0.1:3000"]
 
 from fastapi import FastAPI, Request
 from fastapi import FastAPI
-from app.payouts_iso20022 import router as iso20022_router
+from app.app.payouts_iso20022 import router as iso20022_router
+#from app.payouts_iso20022 import router as iso20022_router - (ignored - 09-12-2025)
 
 app = FastAPI(title="Gateway Service")
 
 app.include_router(iso20022_router)
+
+@app.post("/internal/payout")      # NEW APPEND - 09-12-2025
+async def internal_payout(req: Request):
+    """
+    Internal-only payout trigger from settlement engine.
+    """
+    data = await req.json()
+    amount = data.get("amount")
+    to_addr = data.get("to_address")
+
+    if not amount or not to_addr:
+        raise HTTPException(status_code=400, detail="Missing amount or to_address")
+
+    try:
+        tx_hash = prepare_and_send_tx(amount, to_addr)
+        return {"status": "sent", "tx_hash": tx_hash}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 @app.post("/transactions")
 async def transactions(req: Request):

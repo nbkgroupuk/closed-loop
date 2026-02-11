@@ -1,7 +1,42 @@
 ﻿#!/usr/bin/env python3
-# gateway/app/send_crypto_signonly.py — prepare (and optionally sign & broadcast) an ETH tx
+# gcrypto-payout/app/send_crypto_signonly.py — prepare (and optionally sign & broadcast) an ETH tx
 import os, sys, time
-print("=== send_crypto_signonly ===")
+def prepare_and_send_tx(amount, to_address): # NEW APPEND - 09-12-2025
+    from web3 import Web3, HTTPProvider
+    from eth_account import Account
+    import json, os
+
+    INFURA_URL = os.environ["INFURA_URL"]
+    PRIVATE_KEY = open(os.environ["ETH_SIGNER_KEY_PATH"]).read().strip()
+
+    w3 = Web3(HTTPProvider(INFURA_URL))
+    acct = Account.from_key(PRIVATE_KEY)
+    sender = acct.address
+
+    value_wei = int(float(amount) * 10**18)
+    to_addr = Web3.to_checksum_address(to_address)
+    nonce = w3.eth.get_transaction_count(sender)
+
+    tx = {
+        "to": to_addr,
+        "value": value_wei,
+        "nonce": nonce,
+        "chainId": w3.eth.chain_id,
+        "gas": 21000,
+        "gasPrice": w3.eth.gas_price
+    }
+
+    signed = acct.sign_transaction(tx)
+    tx_hash = w3.eth.send_raw_transaction(signed.rawTransaction)
+    return w3.to_hex(tx_hash)
+
+    def _self_test():
+        print("=== send_crypto_signonly ===")
+        # existing test logic here
+
+    if __name__ == "__main__":
+        _self_test()
+ 
 
 INFURA_URL = os.environ.get("INFURA_URL")
 PRIVATE_KEY = os.environ.get("PRIVATE_KEY")

@@ -1,4 +1,4 @@
-# app/config.py
+# gateway/app/config.py
 from pydantic import BaseSettings, AnyHttpUrl
 from typing import Optional
 
@@ -23,8 +23,16 @@ class Settings(BaseSettings):
     # Path to connector config if any
     CONNECTOR_CONFIG: Optional[str] = None
 
+    # Acquirer ISO8583 sandbox
+    ACQUIRER_HOST: Optional[str] = None
+    ACQUIRER_PORT: Optional[int] = None
+    ACQUIRER_NETWORK: Optional[str] = None
+    ACQUIRER_TPDU: Optional[str] = None
+    ACQUIRER_MLI: Optional[int] = None
+    ACQUIRER_TIMEOUT: Optional[int] = None
     class Config:
         env_file = ".env"
         case_sensitive = True
 
 settings = Settings()
+   

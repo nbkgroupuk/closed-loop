@@ -5,6 +5,29 @@ import json
 import logging
 from typing import Optional
 
+from app.telemetry.business_metrics import (   # NEW SECTION ADDED #
+    iso8583_tx_total,
+    iso8583_latency,
+)
+
+import time
+
+start = time.time()
+
+# existing ISO processing logic …
+
+de39 = str(result.get("DE39", "96"))
+mti = data.get("mti", "0200")
+
+iso8583_tx_total.labels(
+    mti=mti,
+    response_code=de39
+).inc()
+
+iso8583_latency.observe(time.time() - start)
+
+# NEW SECTION ADDED ABOVE #
+
 LOG = logging.getLogger("processor.iso_listener")
 LOG.setLevel(logging.INFO)
 if not LOG.handlers:

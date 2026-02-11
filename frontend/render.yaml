@@ -1,9 +1,0 @@
-services:
-  - type: static_site
-    name: card-terminal-frontend
-    rootDir: frontend
-    buildCommand: ""
-    staticPublishPath: .
-    index: index.html
-    preview:
-      branch: main

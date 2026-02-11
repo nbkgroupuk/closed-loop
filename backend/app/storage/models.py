@@ -3,8 +3,30 @@
 import enum
 import sqlalchemy as sa
 from sqlalchemy.orm import declarative_base
+from sqlalchemy.dialects.postgresql import UUID
 import datetime
 import uuid
+from sqlalchemy import Column, String, Numeric, DateTime
+from sqlalchemy import (
+    Column,
+    String,
+    Integer,
+    Float,
+    Numeric,
+    Boolean,
+    DateTime,
+    Text,
+    Enum,
+    ForeignKey,
+    BigInteger,
+)
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.orm import relationship
+
+from app.storage.db import Base
+from sqlalchemy.dialects.postgresql import JSON
+from app.storage.db import Base
+# (and the rest of your imports unchanged)
 
 Base = declarative_base()
 
@@ -45,15 +67,19 @@ class Transaction(Base):
     meta = sa.Column(sa.JSON, default={})
     created_at = sa.Column(sa.DateTime, default=now)
     updated_at = sa.Column(sa.DateTime, default=now, onupdate=now)
+    stan = Column(String(6), nullable=True)
+    rrn = Column(String(12), nullable=True)
 
 class Payout(Base):
     __tablename__ = "payouts"
-    id = sa.Column(sa.String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    id = sa.Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     transaction_id = sa.Column(sa.String(36), sa.ForeignKey("transactions.id"), nullable=False, index=True)
     merchant_id = sa.Column(sa.String(64), nullable=False, index=True)
     type = sa.Column(sa.Enum(PayoutType), nullable=False)
     status = sa.Column(sa.Enum(PayoutStatus), default=PayoutStatus.PENDING, nullable=False)
     payload = sa.Column(sa.JSON, default={})
+    stan = sa.Column(sa.String(32), nullable=True)
+    rrn = sa.Column(sa.String(64), nullable=True)
     external_ref = sa.Column(sa.String(256), nullable=True)
     attempts = sa.Column(sa.Integer, default=0)
     error_msg = sa.Column(sa.Text, nullable=True)
@@ -62,7 +88,7 @@ class Payout(Base):
 
 class Outbox(Base):
     __tablename__ = "outbox"
-    id = sa.Column(sa.String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    id = sa.Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     target = sa.Column(sa.String(128), nullable=False)
     payload = sa.Column(sa.JSON, nullable=False)
     status = sa.Column(sa.String(32), default="PENDING", nullable=False, index=True)

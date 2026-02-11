@@ -5,7 +5,10 @@ from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 from fastapi import FastAPI, Request
 import logging, re, os
+from datetime import datetime       # <-- add this
+import random                       # <-- add this
 from app.tcp_client import send_iso_to_processor as tcp_send_iso_to_processor
+
 
 app = FastAPI(title="Payment Gateway API")
 LOG = logging.getLogger("gateway.server")
@@ -14,6 +17,23 @@ LOG.setLevel(logging.INFO)
 # gateway/app/server.py (add near the top where `app` is created)
 
 app = FastAPI(title="Payment Gateway API")
+
+def generate_stan() -> str:
+    """
+    ISO8583 Field 11: STAN (n6)
+    6-digit numeric, zero-padded.
+    """
+    return f"{random.randint(0, 999999):06d}"
+
+
+def generate_rrn(stan: str) -> str:
+    """
+    ISO8583 Field 37: RRN (an12)
+    We use YYMMDD + STAN = 12 numeric digits (valid subset of an12).
+    Example: 251126012345
+    """
+    now = datetime.utcnow()
+    return now.strftime("%y%m%d") + stan
 
 @app.get("/health", include_in_schema=False)
 async def health():
@@ -45,17 +65,17 @@ async def process_transaction(request: Request):
     protocol = m.group(1) if m else "101.1"
 
     # Build ISO-like map for the processor
-    fields = {
+        fields = {
         2: card_number,
         3: "000000",
         4: f"{int(float(amount) * 100):012d}",
-        7: "1010000000",
-        11: "123456",
+        7: "1010000000",   # we can refine 7/12/13 later if needed
+        11: stan,          # ISO8583 F11: STAN (n6)
         12: "101000",
         13: "1022",
         14: expiry,
         22: "012",
-        37: "000000000001",
+        37: rrn,           # ISO8583 F37: RRN (an12, here numeric)
         41: "TERM0001",
         42: merchant_id,
         43: "TERMINAL 01",
@@ -88,10 +108,14 @@ async def process_transaction(request: Request):
 
     # Compose the response expected by your frontend
     resp = {
-        "ok": True,
-        "status": "approved" if approved_flag else "declined",
-        "de39": str(de39) if de39 is not None else ("00" if approved_flag else "96"),
-        "auth_code": auth_code or jr.get("de38"),  # prefer UI-sent code; fallback to DE38 if provided
+       "ok": True,
+       "status": "approved" if approved_flag else "declined",
+       "de39": str(de39) if de39 is not None else ("00" if approved_flag else "96"),
+       "auth_code": auth_code or jr.get("de38"),
+
+    # ADD THESE TWO LINES
+       "stan": stan,
+       "rrn": rrn,
     }
 
     # Pass through optional fields from processor only if present (no hardcoded 'SIMULATED')

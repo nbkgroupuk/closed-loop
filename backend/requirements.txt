@@ -8,6 +8,11 @@ aiosqlite
 httpx
 requests
 PyJWT
-
 passlib
 pyotp
+python-jose
+qrcode
+pillow
+stripe>=8.0.0
+prometheus-client
+

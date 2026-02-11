@@ -14,3 +14,4 @@ EXPOSE 9002
 CMD ["uvicorn", "gateway_app:app", "--host", "0.0.0.0", "--port", "9002"]
 RUN pip install defusedxml
 RUN pip install defusedxml
+RUN pip install httpx

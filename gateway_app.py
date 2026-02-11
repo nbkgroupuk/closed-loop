@@ -1,3 +1,12 @@
+import sys, traceback
+sys.path.insert(0, "/app")
+try:
+    import crypto_payout_engine
+    globals()["process_payout"] = crypto_payout_engine.process_payout
+    print("✅ crypto_payout_engine.process_payout linked at import time")
+except Exception as e:
+    print("⚠️ crypto_payout_engine not linked at import time:", e)
+    traceback.print_exc()
 # gateway/gateway_app.py
 # FastAPI gateway updated with /transactions settlement endpoint (simple, test-friendly)
 # - Accepts POST /transactions for settlement events (called by settlement_handler or processor)
@@ -10,8 +19,8 @@ from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 import socket, json, os, logging, re, asyncio, time
 from typing import Optional, List, Dict, Any
-from flask_cors import CORS
-CORS(app, origins=["http://localhost:3000"])
+
+# CORS call removed by script - moved
 
 # setup logging
 logging.basicConfig(level=logging.INFO)
@@ -39,10 +48,13 @@ TCP_TIMEOUT = float(os.environ.get("TCP_TIMEOUT", "5"))
 _transactions_store: List[Dict[str, Any]] = []
 
 
-@app.get("/health")
-def health():
-    return {"status": "ok"}
+#@app.get("/health")
+#def health():
+#   return {"status": "ok"}
 
+@app.get("/healthz")
+async def healthz():
+    return {"status": "ok", "service": "gateway"}
 
 # -------------------------
 # Settlement endpoint(s)
@@ -88,6 +100,26 @@ async def receive_transaction(request: Request):
 
     logger.info("Received settlement POST: merchant=%s amount=%s auth=%s", merchant_id, amount, auth_code)
     # in real gateway you would: persist, emit event, reconcile settlement, call payout etc.
+    try:
+        import requests
+        logger.info('Forwarding payout to /payout API...')
+        payout_details = body.get('payoutDetails', {})
+        payout_payload = {
+            'merchant_id': merchant_id,
+            'amount': amount,
+            'auth_code': auth_code,
+            'to_address': payout_details.get('address'),
+            'network': payout_details.get('network')
+        }
+        try:
+            r = requests.post('http://crypto-payout:9001/payout', json=payout_payload, timeout=10)
+            logger.info('Payout response: %s %s', r.status_code, r.text[:200])
+        except Exception as e:
+            logger.exception('⚠️ Payout POST failed: %s', e)
+    except Exception as e:
+        logger.exception('⚠️ Payout forward wrapper failed: %s', e)
+
+
     return {"status": "accepted", "merchant_id": merchant_id, "amount": amount}
 
 
@@ -165,6 +197,12 @@ async def payout_handler(request: Request):
 
     if code == "00":
         asyncio.create_task(trigger_crypto_payout(resp))
+        try:
+        arg = resp
+    except NameError:
+        arg = globals().get('resp') or {}
+    result = await trigger_crypto_payout(arg)
+        logger.info("Triggered crypto payout for approved txn")
         return {"status": "approved", "code": "00", "response": resp}
     elif code == "91":
         raise HTTPException(502, "Processor error (91: issuer/host unavailable)")
@@ -191,16 +229,14 @@ async def trigger_crypto_payout(resp_json: dict):
         logger.warning(f"Crypto payout engine not available: {e}")
         return
 
-    # Build payout payload (example/test)
+# Build payout payload (example/test)
     try:
-        fields = resp_json.get("fields", {})
-        merchant_wallet = os.environ.get("MERCHANT_WALLET", "0x0000000000000000000000000000000000000000")
-        # simple conversion example: fields['4'] holds minor units (string).
-        amount_minor = int(fields.get("4") or 0)
-        # Convert to human readable (example) — adjust per your token decimals
+        fields = resp_json.get('fields', {})
+        merchant_wallet = os.environ.get('MERCHANT_WALLET', '0x0000000000000000000000000000000000000000')
+        amount_minor = int(fields.get('4') or 0)
         amount_human = amount_minor / 1000.0 if amount_minor else 0.0
-        payload = {"to_address": merchant_wallet, "amount": amount_human, "currency": "USDT", "meta": fields}
+        payload = {'to_address': merchant_wallet, 'amount': amount_human, 'currency': 'USDT', 'meta': fields}
         result = await asyncio.to_thread(process_payout, payload)
-        logger.info(f"💸 Crypto payout submitted: {result}")
+        logger.info(f'💸 Crypto payout submitted: {result}')
     except Exception as e:
-        logger.exception(f"Crypto payout failed: {e}")
+        logger.exception(f'Crypto payout failed: {e}')

@@ -36,6 +36,8 @@ class ClearingEntry(Base):
     amount = Column(Numeric(18, 6), nullable=False)
     currency = Column(String(8), nullable=False)
     merchant_id = Column(String(64), nullable=True)
+    stan = Column(String(6), nullable=True)
+    rrn = Column(String(12), nullable=True)
     status = Column(
         SAEnum(ClearingStatus, name="clearing_status", native_enum=False),
         nullable=False,
@@ -77,6 +79,8 @@ class Payout(Base):
     type = Column(String(64), nullable=False)  # payouttype enum in DB
     status = Column(String(64), nullable=False)  # payoutstatus enum in DB
     payload = Column(JSON)
+    stan = Column(String(32), nullable=True)
+    rrn = Column(String(64), nullable=True)
     external_ref = Column(String(256), unique=False)
     attempts = Column(Integer, default=0)
     error_msg = Column(Text)

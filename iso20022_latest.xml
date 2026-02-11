@@ -1,0 +1,8 @@
+HTTP/1.1 404 Not Found
+Server: nginx/1.28.0
+Date: Tue, 09 Dec 2025 09:04:53 GMT
+Content-Type: application/json
+Content-Length: 22
+Connection: keep-alive
+
+{"detail":"Not Found"}

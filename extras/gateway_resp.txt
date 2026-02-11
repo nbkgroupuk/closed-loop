@@ -1,7 +1,0 @@
-HTTP/1.1 422 Unprocessable Entity
-date: Sun, 28 Sep 2025 08:19:44 GMT
-server: uvicorn
-content-length: 513
-content-type: application/json
-
-{"detail":[{"loc":["body",0],"msg":"Expecting value: line 1 column 1 (char 0)","type":"value_error.jsondecode","ctx":{"msg":"Expecting value","doc":"HTTP/1.1 422 Unprocessable Entitydate: Sun, 28 Sep 2025 08:18:28 GMTserver: uvicorncontent-length: 168content-type: application/json{\"detail\":[{\"loc\":[\"query\",\"args\"],\"msg\":\"field required\",\"type\":\"value_error.missing\"},{\"loc\":[\"query\",\"kwargs\"],\"msg\":\"field required\",\"type\":\"value_error.missing\"}]}","pos":0,"lineno":1,"colno":1}}]}

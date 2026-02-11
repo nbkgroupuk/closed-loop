@@ -1,0 +1,39 @@
+<Document xmlns="urn:iso:std:iso:20022:tech:xsd:pain.001.001.03">
+  <CstmrCdtTrfInitn>
+    <GrpHdr>
+      <MsgId>MSG-20251210123339813</MsgId>
+      <CreDtTm>2025-12-10T12:33:39</CreDtTm>
+      <NbOfTxs>1</NbOfTxs>
+    </GrpHdr>
+    <PmtInf>
+      <PmtInfId>MSG-20251210123339813</PmtInfId>
+      <Dbtr>
+        <Nm>0e9437ac-7f62-47f1-925f-0da7a27453f9</Nm>
+      </Dbtr>
+      <DbtrAcct>
+        <Id><Othr><Id>62a24d77-024b-443d-a3ff-f06cb28c1e49</Id></Othr></Id>
+      </DbtrAcct>
+
+      <Cdtr>
+        <Nm>RUTLAND PROJECTS LTD</Nm>
+      </Cdtr>
+      <CdtrAcct>
+        <Id><Othr><Id>3773272</Id></Othr></Id>
+      </CdtrAcct>
+      <CdtrAgt>
+        <FinInstnId>
+          <BIC>HATRUS44</BIC>
+        </FinInstnId>
+      </CdtrAgt>
+
+      <CdtTrfTxInf>
+        <PmtId>
+          <EndToEndId>E2E-62a24d77-024b-443d-a3ff-f06cb28c1e49</EndToEndId>
+        </PmtId>
+        <Amt>
+          <InstdAmt Ccy="USD">200.00</InstdAmt>
+        </Amt>
+      </CdtTrfTxInf>
+    </PmtInf>
+  </CstmrCdtTrfInitn>
+</Document>

@@ -1,0 +1,54 @@
+events {}
+
+http {
+    upstream frontend {
+        server project-frontend:80;
+    }
+
+    upstream gateway {
+        server project-gateway:8000;
+    }
+
+    upstream backend {
+        server project-backend:8000;
+    }
+
+    server {
+        listen 80;
+        server_name _;
+
+        # Health → backend
+        location = /health {
+            proxy_pass http://backend/health;
+            proxy_set_header Host $host;
+        }
+
+        # Stripe Webhook (NO REWRITE)
+        location = /stripe/webhook {
+            proxy_pass http://backend/stripe/webhook;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        }
+
+        # API → backend
+        location /api/ {
+            proxy_pass http://backend/;
+            proxy_set_header Host $host;
+        }
+
+        # Gateway
+        location /transactions {
+            proxy_pass http://gateway/transactions;
+        }
+
+        location /payout {
+            proxy_pass http://gateway/payout;
+        }
+
+        # Frontend
+        location / {
+            proxy_pass http://frontend/;
+        }
+    }
+}

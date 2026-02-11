@@ -18,3 +18,8 @@ async def init_db():
     async with engine.begin() as conn:
         # if alembic handles migrations this is a no-op for prod
         await conn.run_sync(lambda conn: None)
+
+# Stripe compatibility alias
+async def get_session():
+    async with AsyncSessionLocal() as session:
+        yield session

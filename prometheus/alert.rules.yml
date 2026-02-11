@@ -1,0 +1,23 @@
+groups:
+- name: payments-alerts
+  rules:
+
+  - alert: StripeSettlementFailures
+    expr: rate(stripe_settlement_total{status="failed"}[5m]) > 0
+    for: 5m
+    labels:
+      severity: critical
+    annotations:
+      summary: "Stripe settlement failures detected"
+
+  - alert: HighISODeclineRate
+    expr: |
+      rate(iso8583_approved_total[5m])
+      /
+      rate(iso8583_requests_total[5m]) < 0.85
+    for: 10m
+    labels:
+      severity: warning
+    annotations:
+      summary: "High ISO8583 decline rate"
+

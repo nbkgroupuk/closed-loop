@@ -1,21 +1,33 @@
 from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel
-from app.auth import verify_password, create_jwt
-# Add your actual user DB logic here
 
-router = APIRouter()
+# This router handles /api/auth/*
+router = APIRouter(prefix="/auth", tags=["auth"])
 
-# Dummy in-memory user (replace with DB logic)
-fake_user = {"username": "admin", "hashed_password": "$2b$12$123..."}  # bcrypt hash here
 
 class LoginRequest(BaseModel):
-    username: str
+    email: str
     password: str
 
-@router.post("/login")
-def login(data: LoginRequest):
-    if data.username != fake_user["username"] or not verify_password(data.password, fake_user["hashed_password"]):
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
-    
-    token = create_jwt(subject=data.username)
-    return {"access_token": token}
+
+class LoginResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+
+
+@router.post("/login", response_model=LoginResponse)
+async def login(data: LoginRequest):
+    """
+    Super simple hard-coded login so UI can work:
+      email:    admin
+      password: Br_3339
+    Later you can replace this with a real user table.
+    """
+    if not (data.email == "admin" and data.password == "Br_3339"):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid credentials",
+        )
+
+    # Dummy token – just something the frontend can store
+    return LoginResponse(access_token="dummy-admin-token")

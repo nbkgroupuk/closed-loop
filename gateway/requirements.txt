@@ -10,3 +10,4 @@ prometheus-client==0.17.0
 httpx
 httpx
 web3
+stripestripe

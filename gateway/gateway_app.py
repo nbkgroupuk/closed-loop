@@ -1,186 +1,145 @@
-# project/gateway/gateway_app.py
-from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
+# gateway/gateway_app.py
+from fastapi import FastAPI, Request, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
-import os, time, uuid, json, socket, re, asyncio, logging
-from typing import Dict, Any, Optional, List
+import os, logging, uuid
+from datetime import datetime
+import stripe
 
-logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("gateway")
+
+# --------------------------------------------------
+# Config
+# --------------------------------------------------
+STRIPE_ENABLED = os.getenv("STRIPE_ENABLED", "true").lower() == "true"
+FORCE_APPROVE_MODE = os.getenv("FORCE_APPROVE_MODE", "false").lower() == "true"
+
+stripe.api_key = os.getenv("STRIPE_SECRET_KEY", "")
 
 app = FastAPI(title="Gateway")
 
-# CORS — tighten in prod
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://localhost", "*"],
-    allow_credentials=True,
-    allow_methods=["GET","POST","PUT","DELETE","OPTIONS"],
+    allow_origins=["*"],
+    allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# ------------------------------------------------------------------------------------
-# Simple WS manager so the UI can receive async payout results (topic: "payout.result")
-# ------------------------------------------------------------------------------------
-class WsManager:
-    def __init__(self):
-        # client_id -> websocket
-        self.active: Dict[str, WebSocket] = {}
-
-    async def connect(self, client_id: str, ws: WebSocket):
-        await ws.accept()
-        self.active[client_id] = ws
-        log.info("WS connected: %s (now %d)", client_id, len(self.active))
-
-    def disconnect(self, client_id: str):
-        self.active.pop(client_id, None)
-        log.info("WS disconnected: %s (now %d)", client_id, len(self.active))
-
-    async def send(self, client_id: str, message: Dict[str, Any]):
-        ws = self.active.get(client_id)
-        if not ws:
-            return
-        try:
-            await ws.send_text(json.dumps(message))
-        except Exception:
-            self.disconnect(client_id)
-
-ws_manager = WsManager()
-
-@app.websocket("/ws/{client_id}")
-async def ws_endpoint(ws: WebSocket, client_id: str):
-    await ws_manager.connect(client_id, ws)
-    try:
-        while True:
-            # We don't expect messages from the client; keep the socket alive
-            await ws.receive_text()
-    except WebSocketDisconnect:
-        ws_manager.disconnect(client_id)
-    except Exception:
-        ws_manager.disconnect(client_id)
-
-# -------------------
-# Health
-# -------------------
-@app.get("/healthz")
-async def healthz():
-    return {"status": "ok", "service": "gateway"}
-
-# ------------------------------------------------------------------------------------
-# /transactions   (kept permissive for dev; returns ISO-style approval instantly)
-# ------------------------------------------------------------------------------------
-_transactions_store: List[Dict[str, Any]] = []
-
+# --------------------------------------------------
+# Transactions
+# --------------------------------------------------
 @app.post("/transactions")
-async def receive_transaction(request: Request):
-    try:
-        body = await request.json()
-    except Exception as e:
-        raise HTTPException(400, f"Invalid JSON: {e}")
+async def transactions(
+    request: Request,
+    x_test_mode: str | None = Header(default=None),
+):
+    body = await request.json()
 
-    merchant_id = body.get("merchant_id") or body.get("merchant") or body.get("merchantId")
     amount = body.get("amount")
+    currency = body.get("currency", "GBP").lower()
     protocol = body.get("protocol")
-    auth_code = body.get("auth_code") or body.get("authCode") or body.get("auth")
+    auth_code = body.get("auth_code")
+    card = body.get("card", {})
 
-    if merchant_id is None:
-        raise HTTPException(400, "merchant_id is required")
-    if amount is None:
-        raise HTTPException(400, "amount is required")
+    # --------------------------------------------------
+    # 1️⃣ FORCE APPROVE (CERTIFICATION ONLY)
+    # --------------------------------------------------
+    if (
+        FORCE_APPROVE_MODE
+        and x_test_mode == "FORCE_APPROVE"
+        and card.get("type") == "closed_loop"
+    ):
+        log.warning("FORCE_APPROVE test mode invoked via gateway")
 
-    entry = {
-        "received_at": time.time(),
-        "merchant_id": merchant_id,
-        "amount": amount,
-        "auth_code": auth_code,
-        "protocol": protocol,
-        "raw": body
-    }
-    _transactions_store.append(entry)
-    if len(_transactions_store) > 200:
-        _transactions_store.pop(0)
+        return {
+            "status": "APPROVED",
+            "code": "00",
+            "protocol": protocol,
+            "auth_code": auth_code,
+            "amount": amount,
+            "currency": currency.upper(),
+            "reference": body.get("reference"),
+            "approval_type": "FORCE_TEST",
+        }
 
-    # DEV: instant approval with ISO-ish fields so UI shows green
+    # --------------------------------------------------
+    # 2️⃣ CLOSED LOOP FLOW (NO PAN / NO STRIPE)
+    # --------------------------------------------------
+    if card.get("type") == "closed_loop":
+        if not protocol or not auth_code or not amount:
+            return {
+                "status": "DECLINED",
+                "reason": "missing protocol, auth_code, or amount",
+            }
+
+        # Normal path → forward to processor / issuer later
+        return {
+            "status": "PENDING",
+            "message": "Closed-loop transaction accepted",
+            "protocol": protocol,
+            "reference": body.get("reference"),
+        }
+
+    # --------------------------------------------------
+    # 3️⃣ OPEN LOOP / STRIPE FLOW (PAN REQUIRED)
+    # --------------------------------------------------
+    if STRIPE_ENABLED:
+        pan = body.get("pan")
+        expiry = body.get("expiry")
+
+        if not pan or not expiry or not amount:
+            return {
+                "status": "DECLINED",
+                "reason": "missing card or amount",
+            }
+
+        try:
+            exp_month = int(expiry.split("/")[0])
+            exp_year = int("20" + expiry.split("/")[1])
+
+            pm = stripe.PaymentMethod.create(
+                type="card",
+                card={
+                    "number": pan,
+                    "exp_month": exp_month,
+                    "exp_year": exp_year,
+                },
+            )
+
+            intent = stripe.PaymentIntent.create(
+                amount=int(float(amount) * 100),
+                currency=currency,
+                payment_method=pm.id,
+                confirm=True,
+                payment_method_options={
+                    "card": {"request_three_d_secure": "never"}
+                },
+                metadata={
+                    "protocol": protocol,
+                    "mode": "OPEN_LOOP",
+                },
+            )
+
+            charge = intent.charges.data[0]
+
+            return {
+                "status": "APPROVED",
+                "amount": amount,
+                "currency": currency.upper(),
+                "txn_id": intent.id,
+                "arn": charge.id,
+                "last4": charge.payment_method_details.card.last4,
+            }
+
+        except Exception as e:
+            return {
+                "status": "DECLINED",
+                "reason": str(e),
+            }
+
+    # --------------------------------------------------
+    # 4️⃣ FALLBACK
+    # --------------------------------------------------
     return {
-        "status": "approved",
-        "code": "00",
-        "de39": "00",
-        "de39_text": "APPROVED",
-        "auth_code": auth_code or ("0000" if str(protocol).startswith(("101.1","101.7")) else "000000"),
-        "merchant_id": merchant_id,
-        "amount": amount
+        "status": "DECLINED",
+        "reason": "unsupported transaction type",
     }
-
-@app.get("/transactions")
-def list_transactions(limit: Optional[int] = 50):
-    return {"count": len(_transactions_store), "items": _transactions_store[-limit:]}
-
-# ------------------------------------------------------------------------------------
-# Payout job lifecycle (what the frontend and processor will use)
-# ------------------------------------------------------------------------------------
-class PayoutRequest(BaseModel):
-    merchant_id: str   # on the UI we send CLIENT_ID here so we can notify the same socket
-    amount: float
-    currency: str = "USD"
-    to_address: Optional[str] = None
-    network: Optional[str] = None   # "erc20" / "trc20" / "bep20", etc.
-
-# In-memory job table: job_id -> dict
-JOBS: Dict[str, Dict[str, Any]] = {}
-
-@app.post("/payout")
-async def create_payout(req: PayoutRequest):
-    job_id = str(uuid.uuid4())
-    JOBS[job_id] = {
-        "status": "queued",        # queued -> success | failed
-        "job_id": job_id,
-        "merchant_id": req.merchant_id,  # we treat this as CLIENT_ID from the UI
-        "amount": req.amount,
-        "currency": req.currency,
-        "to_address": req.to_address,
-        "network": req.network,
-        "txhash": None,
-        "created_at": time.time(),
-    }
-    # Return ISO-like approval so the UI immediately shows green
-    return {
-        "approved": True,
-        "de39": "00",
-        "de39_text": "APPROVED",
-        "job_id": job_id,
-        "txhash": None
-    }
-
-@app.get("/payout/{job_id}")
-async def payout_status(job_id: str):
-    job = JOBS.get(job_id)
-    if not job:
-        raise HTTPException(404, "Unknown job")
-    return job
-
-class BroadcastPayload(BaseModel):
-    txhash: Optional[str] = None
-    status: Optional[str] = "success"  # "success" or "failed"
-    message: Optional[str] = None
-
-@app.post("/payout/{job_id}/broadcast")
-async def payout_broadcast(job_id: str, payload: BroadcastPayload):
-    job = JOBS.get(job_id)
-    if not job:
-        raise HTTPException(404, "Unknown job")
-
-    job["txhash"] = payload.txhash
-    job["status"] = "success" if (payload.status or "").lower() == "success" else "failed"
-    job["message"] = payload.message
-
-    # Push real-time message to the same client that created the payout
-    client_id = job.get("merchant_id")
-    if client_id:
-        await ws_manager.send(client_id, {
-            "type": "payout.result",
-            "job_id": job_id,
-            "txhash": job["txhash"],
-            "status": job["status"],
-        })
-
-    return job

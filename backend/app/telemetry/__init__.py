@@ -1,5 +1,5 @@
 ﻿from .logging import configure_logging
-from .metrics import router as metrics_router, metrics_endpoint
+from .metrics import router as metrics_router
 # initialize a default logger at import-time (apps may call configure_logging again)
 logger = configure_logging()
 

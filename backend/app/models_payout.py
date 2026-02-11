@@ -23,6 +23,8 @@ class Payout(Base):
     currency = Column(String, nullable=False)
     creditor_name = Column(String, nullable=True)
     pain_xml = Column(Text, nullable=False)
+    stan = Column(String, nullable=True)
+    rrn = Column(String, nullable=True)
     status = Column(Enum(PayoutStatus), default=PayoutStatus.CREATED, nullable=False)
     attempts = Column(Integer, default=0, nullable=False)
     last_error = Column(Text, nullable=True)

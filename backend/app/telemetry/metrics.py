@@ -1,21 +1,49 @@
-﻿import logging
-import time
-from fastapi import APIRouter
+# backend/app/telemetry/metrics.py
+from fastapi import APIRouter, Response
+from prometheus_client import (
+    Counter,
+    generate_latest,
+    CONTENT_TYPE_LATEST,
+)
 
-router = APIRouter()
+# ---------------------------------------------------
+# Router
+# ---------------------------------------------------
+router = APIRouter(tags=["metrics"])
 
-# minimal prometheus-like metrics placeholder
-METRICS = {
-    "uptime_seconds": lambda start: int(time.time() - start),
-    "requests_total": 0,
-}
+# ---------------------------------------------------
+# BUSINESS METRICS (DEFINED ONCE, HERE ONLY)
+# ---------------------------------------------------
 
-start_time = time.time()
+stripe_requests_total = Counter(
+    "stripe_requests_total",
+    "Stripe requests",
+    ["operation", "status"],
+)
 
-@router.get("/metrics")
-async def metrics_endpoint():
-    METRICS["requests_total"] += 1
-    return {
-        "uptime_seconds": METRICS["uptime_seconds"](start_time),
-        "requests_total": METRICS["requests_total"],
-    }
+stripe_amount_total_minor = Counter(
+    "stripe_amount_total_minor",
+    "Total Stripe processed amount (minor units)",
+    ["currency"],
+)
+
+payouts_total = Counter(
+    "payouts_total",
+    "Total payouts",
+    ["method", "status"],
+)
+
+# ---------------------------------------------------
+# /metrics endpoint (ONLY ONE IN SYSTEM)
+# ---------------------------------------------------
+@router.get("/metrics", include_in_schema=False)
+def metrics():
+    return Response(
+        generate_latest(),
+        media_type=CONTENT_TYPE_LATEST,
+    )
+
+# ---------------------------------------------------
+# EXPORTS
+# ---------------------------------------------------
+metrics_router = router

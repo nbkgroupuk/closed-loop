@@ -1,3 +1,4 @@
+# gateway/server.py
 # Minimal HTTP wrapper for crypto_payout_engine.py
 # Expects crypto_payout_engine.process_settlement_and_trigger to be importable.
 import os, json

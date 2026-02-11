@@ -1,46 +1,51 @@
 # backend/app/main.py
-import uvicorn
-import logging
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel
+from app.storage.db import get_session
+from app.storage.models import Outbox
+import uuid
 
-from app.routes import router as api_router
-from app.config import settings
-from app.telemetry.metrics import metrics_endpoint
-from app.telemetry.logging import configure_logging
-from app.auth_routes import router as auth_router
+class AcquirerAuthRequest(BaseModel):
+    amount: int
+    currency: str
+    protocol: str
+    auth_code: str   # MUST be 4 digits (e.g. 1234)
+    terminal_id: str
+    card_pan: str | None = None  # masked PAN optional
 
-# configure logging early
-configure_logging(getattr(settings, "LOG_LEVEL", "INFO"))
-logger = logging.getLogger(__name__)
+class AcquirerAuthResponse(BaseModel):
+    status: str
+    txn_id: str
 
-# create FastAPI app
-app = FastAPI(title=getattr(settings, "APP_NAME", "backend"), version="0.1.0")
-app.include_router(auth_router)
+@app.post("/acquirer/auth", response_model=AcquirerAuthResponse)
+async def acquirer_auth(req: AcquirerAuthRequest):
+    # Basic validation (acquirer-style)
+    if len(req.auth_code) != 4 or not req.auth_code.isdigit():
+        raise HTTPException(status_code=400, detail="Invalid auth_code")
 
-# ✅ Correct CORS middleware
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-        "http://localhost",
-        "https://your-frontend-domain.com"
-    ],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+    txn_id = f"TXN-{uuid.uuid4().hex[:12].upper()}"
 
-# telemetry endpoint
-app.add_api_route("/metrics", metrics_endpoint, methods=["GET"])
+    payload = {
+        "id": txn_id,
+        "amount": req.amount,
+        "currency": req.currency,
+        "protocol": req.protocol,
+        "auth_code": req.auth_code,
+        "terminal_id": req.terminal_id,
+        "card_pan": req.card_pan,
+        "source": "ACQUIRER_AUTH"
+    }
 
-# include main routes
-app.include_router(api_router)
+    async for db in get_session():
+        db.add(Outbox(
+            target="acquirer",
+            status="received",
+            payload=payload
+        ))
+        await db.commit()
 
-@app.get("/healthz")
-async def healthz():
-    return {"status": "ok", "service": getattr(settings, "APP_NAME", "backend")}
+    return {
+        "status": "APPROVED",
+        "txn_id": txn_id
+    }
 
-if __name__ == "__main__":
-    uvicorn.run("app.main:app", host="0.0.0.0", port=8000, log_level="info")

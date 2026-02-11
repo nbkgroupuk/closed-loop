@@ -1,20 +1,32 @@
-# app/storage/db.py
-import asyncio
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
-from sqlalchemy.orm import sessionmaker
-from app.config import settings
+# backend/app/storage/db.py
+import os
+from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
+from sqlalchemy.orm import declarative_base
 
-DATABASE_URL = settings.DATABASE_URL
+DATABASE_URL = os.environ.get("DATABASE_URL")
 
-engine = create_async_engine(DATABASE_URL, future=True, echo=False, pool_pre_ping=True)
-AsyncSessionLocal = sessionmaker(bind=engine, class_=AsyncSession, expire_on_commit=False)
+if not DATABASE_URL:
+    raise RuntimeError("DATABASE_URL is not set")
+
+if not DATABASE_URL.startswith("postgresql"):
+    raise RuntimeError("FATAL: Not using Postgres")
+
+# SQLAlchemy base (REQUIRED by models.py)
+Base = declarative_base()
+
+engine = create_async_engine(
+    DATABASE_URL,
+    echo=False,
+    future=True,
+)
+
+AsyncSessionLocal = async_sessionmaker(
+    engine,
+    expire_on_commit=False,
+)
 
 async def get_session():
     async with AsyncSessionLocal() as session:
         yield session
 
-# helper to run simple tasks
-async def init_db():
-    async with engine.begin() as conn:
-        # if alembic handles migrations this is a no-op for prod
-        await conn.run_sync(lambda conn: None)
+
